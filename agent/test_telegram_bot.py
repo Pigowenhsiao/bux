@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -76,14 +75,13 @@ def bot(monkeypatch):
     monkeypatch.setattr(tb, "burn_setup_token", lambda: None)
     # Bot.send hits Telegram — no-op it
     monkeypatch.setattr(tb.Bot, "send", lambda self, *a, **k: None)
-    # Track _bind_chat invocations so tests can assert on bind-or-not
+    # Track _bind_chat invocations so tests can assert on bind-or-not.
+    # `add_allow` is mocked, so we don't mutate any persistent allow-set —
+    # the spy just records what `handle()` decided.
     bind_calls: list[tuple[int, dict | None]] = []
-    original_bind = tb.Bot._bind_chat
 
     def _bind_chat_spy(self, chat_id, sender=None):
         bind_calls.append((chat_id, sender))
-        # Mark as bound so a subsequent message in the same test isn't re-bound.
-        # `add_allow` is mocked, so we mutate the in-test allow-set instead.
 
     monkeypatch.setattr(tb.Bot, "_bind_chat", _bind_chat_spy)
     b._bind_calls = bind_calls  # type: ignore[attr-defined]
