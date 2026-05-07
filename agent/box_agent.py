@@ -809,10 +809,23 @@ class Agent:
 			if sh is not None:
 				sh.close()
 		elif cmd == 'tg_install':
+			# `owner_tg_user_id` is optional. When cloud knows who the
+			# legitimate owner is on Telegram (BuxFather flow has it from
+			# the manager-bot creator update), it propagates the user_id
+			# here so the bot's bind gate can auto-bind the owner's first
+			# DM without requiring `/start <setup_token>`. Paste / QR
+			# flows leave it None — those installs keep the strict-token
+			# bind gate as the only accept path.
+			raw_owner = msg.get('owner_tg_user_id')
+			try:
+				owner_tg_user_id: int | None = int(raw_owner) if raw_owner else None
+			except (TypeError, ValueError):
+				owner_tg_user_id = None
 			await self._tg_install(
 				msg.get('bot_token', ''),
 				msg.get('setup_token', ''),
 				msg.get('bot_username', ''),
+				owner_tg_user_id=owner_tg_user_id,
 			)
 		elif cmd == 'update':
 			# Pull latest agent code from the OSS repo and restart services.
@@ -1276,7 +1289,14 @@ class Agent:
 		# When systemd kills us mid-coroutine, the WS just hangs up;
 		# the new agent process picks up from a fresh hello.
 
-	async def _tg_install(self, bot_token: str, setup_token: str, bot_username: str) -> None:
+	async def _tg_install(
+		self,
+		bot_token: str,
+		setup_token: str,
+		bot_username: str,
+		*,
+		owner_tg_user_id: int | None = None,
+	) -> None:
 		if not bot_token:
 			await self._send(
 				{'type': 'ack', 'cmd': 'tg_install', 'ok': False, 'error': 'empty-token'}
@@ -1287,6 +1307,15 @@ class Agent:
 			lines.append(f'TG_SETUP_TOKEN={setup_token}')
 		if bot_username:
 			lines.append(f'TG_BOT_USERNAME={bot_username}')
+		if owner_tg_user_id:
+			# `_box_owner()` in agent/telegram_bot.py reads TG_OWNER_ID as the
+			# authoritative source of "who owns this box" — overriding the
+			# state-file fallback. When set, it lets the bind gate auto-bind
+			# the owner's first private DM without requiring /start <token>.
+			# The convention (TG_OWNER_ID / TG_OWNER_USERNAME / TG_OWNER_NAME)
+			# pre-dates this writer; we only need user_id for auth purposes
+			# (Telegram stamps `from.id` server-side, can't be forged).
+			lines.append(f'TG_OWNER_ID={int(owner_tg_user_id)}')
 		TG_ENV.write_text('\n'.join(lines) + '\n', encoding='utf-8')
 		# Mode 0o600, owner bux:bux (we run as bux). Both readers can still
 		# get the token: the bux-telegram-bot.service runs as User=root
