@@ -3,36 +3,99 @@
 
 Always:
   1. records the suggestion in /var/lib/bux/agency.db
-  2. posts the body to TG with inline-keyboard buttons (default 4)
+  2. posts the body to TG with inline-keyboard buttons (default 3 in a 2+1 grid)
   3. wires the message_id back into the row so a button tap can record
      the user's decision against the right suggestion.
 
-Default buttons: ✅ Yes, do it · ❌ No · ✏️ Just do it differently · 🔄 Regenerate
+Default buttons: ✅ Yes · ⏭ Skip · ✏️ Edit
+Default layout: row 1 = [Yes][Skip], row 2 = [Edit].
 
-Custom buttons: pass --button (repeatable) to override the set.
+Each default button has a *kind* the bot uses to pick semantics:
+  • Yes  → kind=action  → bot opens a fresh forum topic, dispatches the
+                          suggestion's --prompt there as a new lane.
+  • Skip → kind=dismiss → bot records the dismissal, posts a 1-line ack,
+                          does NOT call the LLM. (Cheap "saw it, move on".)
+  • Edit → kind=refine  → bot opens a fresh forum topic with the question
+                          "What would you change?" — agent waits for the
+                          user's reply, no immediate LLM dispatch.
 
-Dedupe: pass --source <slug> + --skip-if-exists to suppress if the same
-source already has a row that is not 'pending'. Returns 0 silently when
-suppressed (status of the prior row is printed to stderr).
+Callback data shape: `agcy:<thread>:<idx>:<kind>` where kind is one of
+{action, dismiss, refine, custom}. Custom button sets passed via --button
+all get kind=custom (existing dispatch-in-same-topic behavior).
 
-Usage:
-  agency-report --title "Hassan HIPAA send" \\
-                --description "Saved Gmail draft 19df…1d sitting unsent." \\
-                --importance high \\
-                --source gmail-draft-19df00477868154d \\
-                --prompt "Open Gmail draft 19df…, send it, post to #wall-king-magnus." \\
-                --skip-if-exists
+Custom buttons: pass --button (repeatable). Layout wraps in pairs of two.
 
-  agency-report --title "Pick a draft" \\
-                --description "Three drafts ready for the Hassan thread." \\
-                --button "Send draft A" --button "Send draft B" --button "Send draft C"
+Canonical card layout (HTML parse mode):
+
+  [optional image]
+  <emoji> <b>headline</b>
+  <i>source: <link></i>
+  <optional subhead>
+
+  <blockquote expandable>📝 <b>Drafted action</b>
+  ...the actionable content the user will accept...
+  </blockquote>
+
+  <blockquote expandable>💭 <b>Why</b>
+  ...the reasoning / context...
+  </blockquote>
+
+  [Yes] [Skip]
+  [Edit]
+
+If --image (URL), --image-file (local path), or --image-text (auto-rendered
+placeholder) is given, the image renders above the body. For bodies that
+fit Telegram's 1024-char caption budget the card is sent via sendPhoto;
+otherwise it falls back to sendMessage with a large link-preview-image
+above the text (visually identical, no length cap).
+
+`--image-file` uploads a local file via multipart so the model never has
+to know the bot token or build a public URL. Auto-detects content type
+from the file extension (png/jpg/jpeg/gif/webp).
+
+`--info-only` strips the inline keyboard entirely. Use for FYI cards
+(weekly stats, observations) where there's nothing to act on. The row
+is still recorded in the DB so dedup works.
+
+Field mapping:
+  --emoji              prepended to the bold headline
+  --title              the headline (required)
+  --source-label       short clickable label like "GitHub #347"
+  --source-url         URL the source label links to
+  --subhead            optional one-line under the headline
+  --image              direct image URL
+  --image-file         path to a local image file (multipart upload)
+  --image-text         alt: shorthand text → auto-generated placehold.co card
+  --draft              actionable content (first expandable). Falls back to
+                       --prompt when omitted.
+  --reasoning          why-now / context (second expandable). Falls back to
+                       --description when omitted.
+  --description        legacy alias for --reasoning (kept for back-compat)
+  --prompt             exact action that runs if user taps Yes — also fills
+                       draft when --draft is not given.
+  --importance         high|med|low (default med)
+  --source             stable slug for dedupe
+  --skip-if-exists     suppress posting if the source slug already has a
+                       non-pending row
+  --button             repeatable; overrides the default 3-button set.
+                       Custom buttons all get kind=custom.
+  --info-only          omit the inline keyboard entirely (FYI cards).
+  --thread-id          forum topic to post into (defaults to $TG_THREAD_ID)
+
+Inputs are HTML-escaped by default. To embed raw HTML in a field use the
+`--<field>-html` long form (e.g. `--draft-html '<code>...</code>'`).
 """
 from __future__ import annotations
 
 import argparse
+import html
 import json
+import mimetypes
 import os
+import secrets
 import sys
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 REPO_AGENT = Path(__file__).resolve().parent
@@ -40,14 +103,13 @@ sys.path.insert(0, str(REPO_AGENT))
 
 import agency_db  # noqa: E402
 
-import urllib.request  # noqa: E402
-
-DEFAULT_BUTTONS = [
-    "✅ Yes, do it",
-    "❌ No",
-    "✏️ Just do it differently",
-    "🔄 Regenerate",
+# (label, kind) tuples. Kind drives the bot's callback semantics.
+DEFAULT_BUTTONS: list[tuple[str, str]] = [
+    ("✅ Yes", "action"),
+    ("⏭ Skip", "dismiss"),
+    ("✏️ Edit", "refine"),
 ]
+TG_CAPTION_LIMIT = 1024
 
 
 def _read_kv(path: Path) -> dict:
@@ -83,37 +145,288 @@ def chat_id() -> int:
     sys.exit("agency-report: no bound chat (run /start in TG first)")
 
 
-def send_with_buttons(
-    *, token: str, chat: int, thread: int, text: str, buttons: list[str]
-) -> int:
-    keyboard = [
-        [{"text": label, "callback_data": f"agcy:{thread}:{i}"}]
-        for i, label in enumerate(buttons)
+def _esc(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return html.escape(value, quote=False)
+
+
+def _resolve_field(plain: str | None, raw_html: str | None) -> str | None:
+    """Prefer raw HTML if provided, else escape the plain value."""
+    if raw_html is not None:
+        return raw_html
+    return _esc(plain)
+
+
+def _wrap_image_text(text: str, max_per_line: int = 22) -> str:
+    """Word-wrap the placehold.co label so each line stays short.
+    placehold.co auto-fits text to canvas width; with a long single line
+    the font shrinks until unreadable on phone. Wrapping gives bigger
+    per-line glyphs. Single-word lines that exceed the limit pass through
+    unbroken (no mid-word splits)."""
+    words = text.split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        if not current:
+            current = word
+        elif len(current) + 1 + len(word) <= max_per_line:
+            current += " " + word
+        else:
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return "\n".join(lines)
+
+
+def _resolve_image_url(args: argparse.Namespace) -> str | None:
+    if args.image:
+        return args.image
+    if args.image_text:
+        # Wrap to 22 chars per line for readable phone-screen glyphs.
+        # placehold.co accepts literal \n in the text param (URL-encoded
+        # as %0A by quote()). Canvas stays 1200x630 (TG's preferred card
+        # aspect ratio); the wrapping is what does the work.
+        wrapped = _wrap_image_text(args.image_text, max_per_line=22)
+        encoded = urllib.parse.quote(wrapped)
+        return f"https://placehold.co/1200x630/2a0a3a/ff66cc/png?text={encoded}&font=montserrat"
+    return None
+
+
+def _resolve_buttons(args: argparse.Namespace) -> list[tuple[str, str]]:
+    """Returns list of (label, kind). Custom buttons all get kind='custom'."""
+    if args.button:
+        return [(label, "custom") for label in args.button]
+    return list(DEFAULT_BUTTONS)
+
+
+def _build_keyboard(
+    buttons: list[tuple[str, str]], thread: int
+) -> list[list[dict]]:
+    """Wrap buttons in rows of 2 (singleton last row when count is odd)."""
+    cells = [
+        {
+            "text": label,
+            "callback_data": f"agcy:{thread}:{i}:{kind}",
+        }
+        for i, (label, kind) in enumerate(buttons)
     ]
-    body: dict = {
-        "chat_id": chat,
-        "text": text,
-        "reply_markup": {"inline_keyboard": keyboard},
-    }
-    if thread > 0:
-        body["message_thread_id"] = thread
+    rows: list[list[dict]] = []
+    for i in range(0, len(cells), 2):
+        rows.append(cells[i : i + 2])
+    return rows
+
+
+def _build_body(args: argparse.Namespace) -> str:
+    parts: list[str] = []
+
+    emoji = (args.emoji or "").strip()
+    headline = _resolve_field(args.title, args.title_html)
+    parts.append(f"{emoji} <b>{headline}</b>".lstrip())
+
+    src_label = _resolve_field(args.source_label, args.source_label_html)
+    if src_label and args.source_url:
+        url = html.escape(args.source_url, quote=True)
+        parts.append(f'<i>source: <a href="{url}">{src_label}</a></i>')
+    elif src_label:
+        parts.append(f"<i>source: {src_label}</i>")
+
+    subhead = _resolve_field(args.subhead, args.subhead_html)
+    if subhead:
+        parts.append(subhead)
+
+    draft = _resolve_field(args.draft, args.draft_html)
+    if not draft and args.prompt:
+        draft = f"<pre>{html.escape(args.prompt, quote=False)}</pre>"
+    if draft:
+        title = html.escape(args.draft_title or "Drafted action", quote=False)
+        emoji_d = args.draft_emoji or "📝"
+        parts.append(
+            f"\n<blockquote expandable>{emoji_d} <b>{title}</b>\n{draft}</blockquote>"
+        )
+
+    reasoning = _resolve_field(args.reasoning, args.reasoning_html)
+    if not reasoning and args.description:
+        reasoning = _esc(args.description)
+    if reasoning:
+        title = html.escape(args.reasoning_title or "Why", quote=False)
+        emoji_r = args.reasoning_emoji or "💭"
+        parts.append(
+            f"<blockquote expandable>{emoji_r} <b>{title}</b>\n{reasoning}</blockquote>"
+        )
+
+    return "\n".join(parts)
+
+
+def _multipart_post(token: str, method: str, fields: dict, files: dict) -> dict:
+    """Build a multipart/form-data POST. files = {name: (filename, bytes, ctype)}."""
+    boundary = "----buxform" + secrets.token_hex(12)
+    body = bytearray()
+    for name, value in fields.items():
+        if value is None:
+            continue
+        body += f"--{boundary}\r\n".encode()
+        body += f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode()
+        body += str(value).encode("utf-8")
+        body += b"\r\n"
+    for name, (filename, data, ctype) in files.items():
+        body += f"--{boundary}\r\n".encode()
+        body += (
+            f'Content-Disposition: form-data; name="{name}"; '
+            f'filename="{filename}"\r\n'
+        ).encode()
+        body += f"Content-Type: {ctype}\r\n\r\n".encode()
+        body += data
+        body += b"\r\n"
+    body += f"--{boundary}--\r\n".encode()
+
     req = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        data=json.dumps(body).encode("utf-8"),
+        f"https://api.telegram.org/bot{token}/{method}",
+        data=bytes(body),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read())
+
+
+def _json_post(token: str, method: str, payload: dict) -> dict:
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/{method}",
+        data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=15) as r:
-        resp = json.loads(r.read())
+        return json.loads(r.read())
+
+
+def send_card(
+    *,
+    token: str,
+    chat: int,
+    thread: int,
+    body: str,
+    image_url: str | None,
+    image_file: str | None,
+    keyboard: list[list[dict]] | None,
+) -> int:
+    base_fields = {
+        "chat_id": chat,
+        "parse_mode": "HTML",
+    }
+    if thread > 0:
+        base_fields["message_thread_id"] = thread
+    if keyboard is not None:
+        reply_markup_json = json.dumps({"inline_keyboard": keyboard})
+    else:
+        reply_markup_json = None
+
+    if image_file:
+        path = Path(image_file)
+        if not path.is_file():
+            sys.exit(f"agency-report: --image-file not found: {image_file}")
+        ctype, _ = mimetypes.guess_type(path.name)
+        if not ctype:
+            ctype = "image/png"
+        fields = {
+            **base_fields,
+            "caption": body,
+            "reply_markup": reply_markup_json,
+        }
+        files = {"photo": (path.name, path.read_bytes(), ctype)}
+        method = "sendPhoto"
+        # sendPhoto caption max is 1024 chars. If we'd exceed, truncate
+        # the body — the alternative (link-preview fallback) doesn't
+        # apply when uploading a local file.
+        if len(body) > TG_CAPTION_LIMIT:
+            sys.stderr.write(
+                f"agency-report: warning — body {len(body)} chars exceeds "
+                f"caption cap {TG_CAPTION_LIMIT}; truncating.\n"
+            )
+            fields["caption"] = body[: TG_CAPTION_LIMIT - 1] + "…"
+        resp = _multipart_post(token, method, fields, files)
+    elif image_url and len(body) <= TG_CAPTION_LIMIT:
+        method = "sendPhoto"
+        payload = {
+            **base_fields,
+            "photo": image_url,
+            "caption": body,
+        }
+        if reply_markup_json:
+            payload["reply_markup"] = json.loads(reply_markup_json)
+        resp = _json_post(token, method, payload)
+    elif image_url:
+        method = "sendMessage"
+        anchor = html.escape(image_url, quote=True)
+        text = f'<a href="{anchor}">​</a>{body}'
+        payload = {
+            **base_fields,
+            "text": text,
+            "link_preview_options": {
+                "url": image_url,
+                "prefer_large_media": True,
+                "show_above_text": True,
+            },
+        }
+        if reply_markup_json:
+            payload["reply_markup"] = json.loads(reply_markup_json)
+        resp = _json_post(token, method, payload)
+    else:
+        method = "sendMessage"
+        payload = {
+            **base_fields,
+            "text": body,
+            "disable_web_page_preview": True,
+        }
+        if reply_markup_json:
+            payload["reply_markup"] = json.loads(reply_markup_json)
+        resp = _json_post(token, method, payload)
+
     if not resp.get("ok"):
-        sys.exit(f"agency-report: sendMessage failed: {resp}")
+        sys.exit(f"agency-report: {method} failed: {resp}")
     return int(resp["result"]["message_id"])
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Record + post an Agency suggestion to Telegram.")
+    p = argparse.ArgumentParser(
+        description="Record + post an Agency suggestion to Telegram (canonical card layout).",
+    )
     p.add_argument("--title", required=True, help="Short scannable headline.")
-    p.add_argument("--description", required=True, help="One-paragraph body.")
+    p.add_argument("--emoji", default="", help="Optional emoji prefixed to the headline.")
+    p.add_argument("--source-label", help="Short clickable label like 'GitHub #347'.")
+    p.add_argument("--source-url", help="URL the source label links to.")
+    p.add_argument("--subhead", help="Optional one-line subhead under the headline.")
+    p.add_argument("--image", help="Direct image URL.")
+    p.add_argument(
+        "--image-file",
+        help="Local image file path; uploaded as multipart.",
+    )
+    p.add_argument(
+        "--image-text",
+        help="Shorthand: auto-generates a placehold.co card with this text.",
+    )
+    p.add_argument("--draft", help="Actionable content (first expandable).")
+    p.add_argument("--draft-title", default="Drafted action", help="Title of the draft block.")
+    p.add_argument("--draft-emoji", default="📝", help="Emoji prefix on the draft block.")
+    p.add_argument("--reasoning", help="Why-now / context (second expandable).")
+    p.add_argument("--reasoning-title", default="Why", help="Title of the why block.")
+    p.add_argument("--reasoning-emoji", default="💭", help="Emoji prefix on the why block.")
+    p.add_argument("--title-html", help="Raw HTML for the headline (skips escaping).")
+    p.add_argument("--source-label-html", help="Raw HTML for the source label.")
+    p.add_argument("--subhead-html", help="Raw HTML for the subhead.")
+    p.add_argument("--draft-html", help="Raw HTML for the draft block body.")
+    p.add_argument("--reasoning-html", help="Raw HTML for the why block body.")
+    p.add_argument(
+        "--description",
+        default="",
+        help="Legacy alias: used as reasoning if --reasoning is not given.",
+    )
+    p.add_argument(
+        "--prompt",
+        help="Exact action that runs if user taps Yes — also fills draft when --draft is not given.",
+    )
     p.add_argument(
         "--importance",
         choices=("high", "med", "low"),
@@ -122,17 +435,18 @@ def main() -> int:
     )
     p.add_argument(
         "--source",
-        help="Stable slug for dedupe (e.g. slack-c-minerva, gmail-thread-19df, gh-pr-78).",
-    )
-    p.add_argument(
-        "--prompt",
-        help="Exact action that runs if user taps yes — agent will see this in the lane.",
+        help="Stable slug for dedupe (e.g. slack-c-foo, gmail-thread-19df, gh-pr-78).",
     )
     p.add_argument(
         "--button",
         action="append",
         default=None,
-        help="Custom button label. Repeatable. If omitted, uses the default 4-button set.",
+        help="Custom button label. Repeatable. Each gets kind=custom.",
+    )
+    p.add_argument(
+        "--info-only",
+        action="store_true",
+        help="Drop the inline keyboard entirely (FYI cards with no action).",
     )
     p.add_argument(
         "--thread-id",
@@ -148,7 +462,11 @@ def main() -> int:
     )
     args = p.parse_args()
 
-    buttons = args.button or DEFAULT_BUTTONS
+    if args.info_only and args.button:
+        sys.exit("agency-report: --info-only and --button are mutually exclusive.")
+
+    buttons = _resolve_buttons(args)
+    button_labels_for_db = [label for label, _ in buttons]
 
     db = agency_db.conn()
 
@@ -165,26 +483,31 @@ def main() -> int:
     sugg_id = agency_db.insert(
         db,
         title=args.title,
-        description=args.description,
+        description=args.description or args.reasoning or "",
         importance=args.importance,
         source=args.source,
         prompt=args.prompt,
-        buttons=buttons,
+        buttons=button_labels_for_db,
         chat_id=chat_id(),
         thread_id=args.thread_id,
     )
 
-    body_lines = [f"🎫 #{sugg_id} · {args.title}", "", args.description]
-    if args.prompt:
-        body_lines += ["", "If yes I'll run:", "```", args.prompt, "```"]
-    body = "\n".join(body_lines)
+    body = _build_body(args)
+    image_url = _resolve_image_url(args)
+    keyboard = (
+        None
+        if args.info_only
+        else _build_keyboard(buttons, args.thread_id)
+    )
 
-    msg_id = send_with_buttons(
+    msg_id = send_card(
         token=bot_token(),
         chat=chat_id(),
         thread=args.thread_id,
-        text=body,
-        buttons=buttons,
+        body=body,
+        image_url=image_url,
+        image_file=args.image_file,
+        keyboard=keyboard,
     )
     agency_db.update_message(db, sugg_id, msg_id)
     print(sugg_id)
