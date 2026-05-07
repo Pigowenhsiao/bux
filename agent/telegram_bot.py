@@ -2848,7 +2848,7 @@ class StreamingMessage:
 #      otherwise the agent's first invocation in the fresh topic
 #      would have no idea what suggestion is being refined.
 
-import html as _html_mod
+import html as _html_mod  # noqa: E402
 
 _AGENCY_REFINE_CTX_DIR = Path("/var/lib/bux/agency-refine-context")
 
@@ -3955,9 +3955,13 @@ class Bot:
             f"Chat id: {chat_id}\n\n"
             "🔒 This bot is now locked to this chat only. Every other chat is "
             "silently dropped — even if someone discovers the bot handle.\n\n"
-            "Text me anything and I'll run it on your bux. Want parallel work? "
-            "Turn on Topics in this chat and each topic becomes a separate "
-            "agent session. Use `/codex` per-topic to switch from claude.",
+            "Pick an agent to drive — `/claude login` for Claude (default), "
+            "or `/codex login` for Codex. The box also works without either "
+            "if you only need browser tools / Composio integrations.\n\n"
+            "Text me anything once you're signed in and I'll run it on your "
+            "bux. Want parallel work? Turn on Topics in this chat and each "
+            "topic becomes a separate agent session. Use `/codex` per-topic "
+            "to switch from claude.",
         )
 
     def _auto_allow_chat(
