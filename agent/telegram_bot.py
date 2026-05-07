@@ -4109,18 +4109,43 @@ class Bot:
         sender = _extract_sender(msg)
         allow = load_allow()
 
-        # Binding: requires `/start <setup_token>` from the deep-link.
-        # Topic-id is irrelevant — once the parent chat is bound, every
-        # topic in it is automatically allowed.
+        # Binding has two accept paths:
         #
-        # Earlier behavior was "first message wins" which leaked the bot
-        # to anyone who guessed the handle and DM'd `/start` before the
-        # legitimate owner. We now require the message to carry the
-        # exact one-time setup_token cloud baked into the t.me/<bot>?
-        # start=<token> deep-link the FE rendered. The token lives only
-        # in (a) the owner's screen / Telegram client and (b) this box's
-        # /etc/bux/tg.env — there is no third copy.
+        #   1. Owner private-DM auto-bind (NEW). When cloud propagated
+        #      the legitimate owner's tg user_id at install time
+        #      (BuxFather flow always; paste/QR currently don't),
+        #      `_box_owner()` returns it from /etc/bux/tg.env and we
+        #      auto-bind the owner's first private DM. Telegram stamps
+        #      `from.id` server-side — senders cannot forge it.
+        #      Restricted to private DMs where chat.id == from.id ==
+        #      owner.user_id so a leaked-handle attack can't bind a
+        #      group the owner happens to message in.
+        #
+        #   2. /start <setup_token> strict match (existing). Required
+        #      when no owner is set on the box, or for binders other
+        #      than the owner (e.g. the QR auto-create flow's
+        #      CDP-injected /start). Constant-time compare so a bind
+        #      brute-force attacker can't time-side-channel.
+        #
+        # Pre-PR-90 behavior was "first message wins" which leaked the
+        # bot to anyone who guessed the handle and DM'd `/start` before
+        # the legitimate owner. Both paths above keep that hole closed
+        # — path 1 by checking from.id, path 2 by requiring the secret.
         if chat_id not in allow:
+            owner = _box_owner(self.state)
+            if (
+                owner
+                and msg.get("chat", {}).get("type") == "private"
+                and sender.get("user_id")
+                and str(sender["user_id"]) == str(owner.get("user_id", ""))
+                and int(chat_id) == int(sender["user_id"])
+            ):
+                LOG.info(
+                    "binding chat_id=%s via owner private-DM auto-bind",
+                    chat_id,
+                )
+                self._bind_chat(chat_id, sender=sender)
+                return
             if self.setup_token:
                 # Require `/start <token>` *exactly* — no other text
                 # message bypasses the gate. constant-time compare so a
