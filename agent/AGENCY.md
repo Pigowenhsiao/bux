@@ -337,6 +337,62 @@ dispatching. So the worker agent re-drafts with the original in scope.
 it on the user's first reply is one SELECT and avoids a separate
 state-tracking surface.)
 
+## Closing a worker topic when the task is done
+
+When everything in a worker topic is genuinely done — email sent, log
+marked, no follow-up expected — end the turn with a "Close topic"
+prompt so the user can sweep the topic out of their active list with
+one tap. Closed topics stay readable; they just fall to the bottom and
+stop drawing the eye.
+
+```bash
+tg-buttons "✅ done — <one-line summary of what landed>" "🗂 Close topic"
+```
+
+`tg-buttons` posts the message with one custom button. On tap, the
+existing `kind=custom` dispatcher rotates `[agency-button] 🗂 Close
+topic` back into the same lane as a synthesized user message. The
+agent receives that on its next turn and closes the topic via the Bot
+API directly — no new callback handler needed, the lane round-trip is
+the implementation:
+
+```bash
+. /etc/bux/tg.env  # TG_BOT_TOKEN
+curl -fsS -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/closeForumTopic" \
+  -H 'Content-Type: application/json' \
+  -d "$(jq -nc --argjson c "$TG_CHAT_ID" --argjson t "$TG_THREAD_ID" \
+        '{chat_id: $c, message_thread_id: $t}')"
+```
+
+`TG_CHAT_ID` and `TG_THREAD_ID` come from the lane env (`_build_env`
+exports both for every agent invocation). The bot is already a
+supergroup admin with `can_manage_topics` (asserted at startup via
+`setMyDefaultAdministratorRights`), so the call succeeds without
+extra setup.
+
+**When to use it:**
+
+- ✅ Discrete task ran to completion in a worker topic (the typical
+  agency `kind=action` shape: card → spawn topic → agent works → done).
+- ✅ A small inline ask ("send Charles the decline") that finished in
+  one turn — same pattern, the topic just doesn't stay open as a
+  rolling lane.
+
+**When NOT to use it:**
+
+- ❌ Mid-task acks ("kicked off the deploy, will ping back"). Lane is
+  still live.
+- ❌ Follow-up question to the user. They need to reply, not close.
+- ❌ The main agency feed topic. That's not a worker topic — closing
+  it would hide the queue itself.
+- ❌ `kind=refine` flows where the next turn depends on the user's
+  reply.
+
+**Skip the button when the task is trivial enough that the topic
+shouldn't have been spawned in the first place** — closing
+immediately after one turn is just round-trip noise. Better: post the
+result inline in the original lane next time.
+
 ## Telegram message rules
 
 - **2-second-scannable on phone.** Lead with verdict / headline; details
