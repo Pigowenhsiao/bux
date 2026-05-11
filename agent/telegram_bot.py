@@ -1242,11 +1242,62 @@ def _write_session_uuid(path: Path, sid: str) -> None:
         LOG.exception("chown %s failed", path)
 
 
+_AGENT_AUTH_CACHE: dict[str, tuple[float, bool]] = {}
+_AGENT_AUTH_TTL_S = 30.0
+
+
+def _is_agent_authed(agent: str) -> bool:
+    """Cheap check: is this CLI signed in? Shells out to the CLI's
+    `auth status` and caches the result for `_AGENT_AUTH_TTL_S` seconds.
+
+    Used to pick a sensible default agent for lanes the user hasn't
+    explicitly bound. Subprocess cost (~1s the first call, free after)
+    is paid only when an unbound lane fires its first message.
+    """
+    import subprocess
+    import time as _time
+
+    now = _time.monotonic()
+    cached = _AGENT_AUTH_CACHE.get(agent)
+    if cached and now - cached[0] < _AGENT_AUTH_TTL_S:
+        return cached[1]
+    cmd = [agent, "auth", "status"] if agent == AGENT_CLAUDE else [agent, "login", "status"]
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            timeout=10,
+            text=True,
+            env={**os.environ, "HOME": "/home/bux"},
+        )
+        text = ((proc.stdout or "") + (proc.stderr or "")).lower()
+        if agent == AGENT_CLAUDE:
+            authed = '"loggedin": true' in text or '"loggedin":true' in text
+        else:
+            # codex: rc==0 isn't reliable across versions; require the
+            # explicit "logged in" marker and not the negated form.
+            authed = "logged in" in text and "not logged in" not in text
+    except Exception:
+        authed = False
+    _AGENT_AUTH_CACHE[agent] = (now, authed)
+    return authed
+
+
 def _agent_for(key: LaneKey, state: dict) -> str:
-    """Resolve which agent handles this lane. /agent <claude|codex> sets it."""
+    """Resolve which agent handles this lane. /agent <claude|codex> sets it.
+
+    For unbound lanes (no explicit /claude or /codex), prefer the CLI
+    that's actually signed in. If both are signed in, keep claude as
+    the historical default. If neither is, also fall back to claude —
+    the user will see the auth-error path and can switch with /codex.
+    """
     bound = (state.get("agents") or {}).get(_lane_slug(key))
     if bound in AGENTS:
         return bound
+    if _is_agent_authed(AGENT_CLAUDE):
+        return AGENT_CLAUDE
+    if _is_agent_authed(AGENT_CODEX):
+        return AGENT_CODEX
     return DEFAULT_AGENT
 
 
