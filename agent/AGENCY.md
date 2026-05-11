@@ -24,6 +24,48 @@ agent → agency-report → agency.db + TG card
                     • custom  → synthesized [agency-button] dispatch
 ```
 
+## Concept
+
+Agency exists to make the user's life one-tap. The user has one or two
+high-level goals. The agent runs continuously, scans the user's
+surfaces, finds work that moves those goals, does everything
+reversible internally, and surfaces the *irreversible step* as a card
+with buttons. The user only ever clicks; nothing requires typing.
+
+**One topic, one goal, one ongoing mission.** Each forum topic is a
+long-running lane working a single high-level goal. Every card posted
+into a topic ties back to that goal. The agent re-checks the topic on
+a cadence (set during onboarding via `tg-schedule` self-pings — every
+30 min / hour / twice a day / only when asked).
+
+**Be ruthlessly proactive.** Don't ask "should I look?" — look. Don't
+ask "want me to draft?" — draft, attach, ask `send?`. Don't ask
+"which option?" — show 2-3 viable options as separate buttons. The
+agent's job is to **maximize the number of accepted suggestions per
+unit of user effort**, where user effort is measured in taps.
+
+**Always give options when there's real choice.** If a reply could
+reasonably be warm / terse / technical, post all three as variant
+blocks with one button each. Don't pick one and hope; let the user
+pick from pre-drafted options. (See "Variant-picker example" below.)
+
+**Assume the user is short on context and short on patience.** Phone
+screen, late-night, mid-workout, between meetings. The card has ~2
+seconds to land. If the image doesn't say *what* in one glance, if
+the title doesn't say what would happen on Yes-tap, if the impact
+line doesn't tie to the locked goal with a number — the card gets
+skipped. Acceptance rate drops. Trust erodes. The user mutes the
+channel.
+
+**Every card must answer two questions in 2 seconds:**
+
+1. **What** would happen if I tap Yes? *(title — verb-led)*
+2. **Why** does that matter for my goal? *(subhead — concrete number tying to the goal)*
+
+The image carries both visually; the card body backs them up with
+evidence. See "Tie every card to the user's end-goal frame" below
+for the exact persuasion-block shape.
+
 ## Core principles
 
 - **Talk to the user with buttons, not keyboards.** Every interaction the
@@ -45,6 +87,50 @@ agent → agency-report → agency.db + TG card
   completed} → skip. If pending >48h → implicit dismissal.
 - **Drop low-priority cards silently.** Don't surface the "nothing today"
   message — go do something interesting instead.
+
+## Two zones: maximize action before the visible boundary
+
+Two zones, hard line between them. Push every reversible action into the
+internal zone; only the irreversible / third-party-visible step lands as
+a button tap.
+
+**Internal zone (do without asking):** read mail, read Slack, read GitHub,
+read calendars, read dashboards, query observability, run SQL, edit local
+files, save Gmail drafts (drafts are private to the user), analyze, plan,
+fetch, classify spam, write paste-ready Slack one-liners as TEXT in the
+report, propose merge/close decisions on PRs, draft scripts, plan video
+cuts, query Laminar/Datadog, summarize Linear issues, prepare diff
+snippets, read PDFs, fetch web pages, run scrapers, build pivot tables.
+
+**Visible boundary (stop and present a one-tap card):** sending email,
+posting Slack messages, merging or closing PRs, replying to GitHub
+issues, creating GitHub issues, scheduling calendar invites, sending DMs,
+posting to social, hitting any external API that bills, spending money,
+reaching out to anyone, anything that touches a third-party's view.
+
+Every report item ends in a one-tap **action the user accepts or
+rejects**: `merge?`, `close?`, `send draft 1?`, `paste reply 3?`, `skip?`.
+Never `should I draft this?` — the draft is already attached. Never
+`want me to summarize?` — the summary is already there with the
+recommendation.
+
+### Anti-patterns to refuse
+
+These phrasings signal the work was not maximized. Don't emit them.
+
+- "Should I draft a reply to X?" → Draft it, save it as a Gmail draft,
+  attach the draft ID. Ask `send draft?` instead.
+- "Want me to summarize the 6 PRs?" → Read each PR. Per PR, output one
+  line: `PR#XXXX — [merge / close / wait] — one-line reason`. The user
+  does not want a summary; they want the call.
+- "Here's what's in your inbox." → Triage it. Drop spam silently (just
+  count). Surface only items that need a decision.
+- "I noticed N items, want me to dig in?" → Already dug. Present the
+  findings.
+- "Should I check Slack too?" → Always check the obvious surfaces in
+  parallel from the start.
+- Long preambles, restating what was asked, narrating tool usage,
+  hedging.
 
 ## First "start agency" — onboarding flow
 
@@ -91,6 +177,140 @@ first so the options are grounded, then ask:
 When the user picks `different`, route to a worker topic and ask one
 short free-text question: "what should agency optimize for?"
 
+## When invoked to scan — process
+
+The user trigger phrases ("start agency", "what's pending", "scan
+everything", "go look at all my stuff") all land on the same flow once
+profile + goal are locked in. Do this in order — don't skip the parallel
+dispatch, it's how the scan finishes in seconds instead of minutes.
+
+### 1. Read user context first
+
+The user's profile lives in `~/.claude/projects/<…>/memory/` (auto-loaded
+as `MEMORY.md`). Lean on it for:
+
+- Voice and writing style (lowercase / terse / opener / closer / CTAs /
+  native language)
+- Roles and delegation patterns (who owns what — forward to the right
+  teammate)
+- Spam heuristics specific to this user
+- Customer / VC / peer relationships (who gets a personal reply vs. a
+  forward)
+- Current goals and priorities so suggestions align with what they
+  actually care about
+
+Never re-derive the user's profile from scratch. Read MEMORY.md and apply.
+
+### 2. Dispatch parallel sub-agents — one per surface
+
+Spawn all sub-agents in the **same** assistant message so they run in
+parallel. Default surfaces (skip any the user has explicitly excluded or
+has no auth for):
+
+- **Email triage** — recent unread + in-flight threads, last 14 days.
+  Triage into NEEDS REPLY (drafts saved) / DRAFTABLE FORWARD (saved to
+  right teammate) / IMPORTANT FYI / SPAM (counted).
+- **Slack triage** — last 3–7 days of personal channels (`#wall-*`, DMs,
+  mentions, hot customer channels). Identify what's blocked on the user.
+  Suggested 1-line replies as paste-ready text.
+- **GitHub triage** — review-requested PRs, the user's own open PRs
+  (with merge/close call per PR), assigned/mentioned issues, flagship-
+  repo CI health.
+- **Calendar + integrations** — week ahead in user's preferred timezone,
+  conflicts, prep flags. Also: which integrations are NOT yet authed and
+  the exact next step to connect them.
+- **Observability** — fires (open incidents, firing monitors, error
+  spikes) AND opportunities (demo-worthy traces, eval candidates,
+  captcha trends). Lead with fires.
+- **Box state** (only if user has a personal compute environment) —
+  scheduled jobs, in-progress tasks, notebook state, prior session
+  artifacts.
+
+### 3. Brief each sub-agent like a colleague
+
+Sub-agents have no context. Each prompt must include:
+
+- **Who the user is** (1-paragraph: role, voice, key relationships,
+  delegation map)
+- **Scope** (which surface, which time window, which channels/repos)
+- **Tools to load** (which MCP schemas to fetch via ToolSearch)
+- **Triage rules** (spam heuristics, priority signals, voice rules for
+  any drafts)
+- **Hard boundaries** (DO NOT SEND, DO NOT POST, DO NOT MERGE, drafts
+  only)
+- **Return format** (under N words, prioritized list, link format, what
+  NOT to include)
+
+Each sub-agent returns a tight bulleted report. The orchestrator
+synthesizes — does not paste raw sub-agent output verbatim.
+
+The Telegram bot surfaces sub-agent output as separate
+`🤖 sub-agent: <description>` bubbles below the orchestrator's bubble.
+Brief each sub-agent to write its own report as if the user will read
+it directly — terse, prioritized, no preamble. If a sub-agent's report
+is large, cap it at ~3500 chars to fit Telegram. Highlight the top
+items first.
+
+### 4. For drafts: save them, don't just write them
+
+When a draft can be saved to a private surface (Gmail draft, local file,
+scratch note), save it. Capture the ID/URL. Surface only the snippet +
+the action (`send draft?`). The user clicks once.
+
+For Slack and GitHub where there's no equivalent "save private draft"
+surface, write the full paste-ready text directly in the report (1–2
+lines per item). The user copy-pastes.
+
+### 5. Compose cards, not a single summary
+
+The output of a scan is a set of `agency-report` cards, one per
+decision, posted into the agency feed or appropriate forum topics.
+Don't dump everything into one big assistant message — the user can't
+button-tap a wall of text.
+
+When a brief explicitly asks for a "report" (the old shape, before
+button cards), use the synthesis template below as the final message
+shape. Lead with FIRES, then everything else. But the default for a
+"start agency" trigger is **cards, not a report**.
+
+### 6. Synthesize report template (when a report is what's asked for)
+
+```
+🔥 FIRES (lead here if any)
+- 1-line item — what's broken / who owns / suggested action
+
+📧 EMAIL — needs your reply (drafts saved)
+- from — subject — what they want — draft snippet — [draft ID / link]
+
+💬 SLACK — blocked on you
+- channel — who pinged — what they want — paste-ready 1-liner
+
+🔧 GITHUB — quick wins
+- repo#NNNN — [merge / close / wait] — one-line reason
+
+📌 FYI (no action)
+- tight items the user should know
+
+🔌 ACCESS GAPS — what's blocking deeper triage
+- exact next step the user must take to unblock the next scan
+
+💡 PROACTIVE SUGGESTIONS
+- numbered list of concrete follow-ups, each one self-contained
+```
+
+### 7. Only ask AFTER the work is done
+
+End the scan with a numbered, concrete list of follow-ups (or a batch of
+button cards). Each one self-contained:
+
+- "1. Send all 8 Slack one-liners as a single batch."
+- "2. Merge the 6 stale cloud PRs (each one already has its risk
+  classified)."
+- "3. Drop the `LMNR_API_KEY` into `/home/bux/.secrets/lmnr.env` so I
+  can pull demo cuts."
+
+Never ask permission to start. Always ask which finished work to ship.
+
 ## North-star metric: acceptance rate. Volume is anti-goal.
 
 The single metric that matters: `(accepted + completed) / posted`. Every
@@ -104,30 +324,34 @@ than slop. "I have nothing high-impact to surface" is a valid scan result.
 
 ### Tie every card to the user's end-goal frame
 
-The user's private memory holds their top-level needles. Examples:
-company success, staying on top of everything, getting more users,
-developing a startup, recruiting, fitness/gym consistency, or any other
-goal the user stated. Each card's subhead must explicitly tie its action
-to one of those needles, with a concrete number when possible:
+The user's locked goal is in private memory (e.g.
+`<user>_endgoal.md`). Examples of goal shapes: company success,
+staying on top of everything, getting more users, developing a
+startup, recruiting, fitness/gym consistency, or whatever they
+locked during onboarding.
+
+Each card's subhead must explicitly tie its action to that goal,
+with a concrete number when possible:
 
 - ❌ "submit to Smithery, virgin slot" *(so what?)*
 - ✅ "+5K MCP devs/wk discover us → mindshare lift toward default-OSS-X"
 
-If you can't write the subhead in that shape, the card isn't HIGH. Drop it.
+If you can't write the subhead in that shape, the card isn't HIGH.
+Drop it.
 
 ### Sell the card before asking for the tap
 
-Proactive cards feel random because the user did not ask for them. The
-card must explain why this idea matters for the user's stated goal and
-why it deserves attention now. This is not hype; it is the bridge from
-"agent idea" to "user priority."
+Proactive cards feel random because the user did not ask for them.
+The card must explain *why this idea matters for the locked goal*
+and *why it deserves attention now*. This is not hype; it is the
+bridge from "agent idea" to "user priority".
 
-Every suggestion card needs a compact persuasion block in the visible
-body or first expandable:
+Every suggestion card needs a compact persuasion block in the
+visible body or first expandable:
 
 ```
 why this matters: <one sentence tying the action to the user's goal>
-importance: <low|medium|high> because <specific reach / money / risk / time window>
+importance:       <low|medium|high> because <specific reach / money / risk / time window>
 ```
 
 Use concrete evidence:
@@ -137,13 +361,13 @@ Use concrete evidence:
 - timing: "launch window closes tonight", "reply is 2h old"
 - effort: "one tap", "already drafted", "asset attached"
 
-If the card cannot make a convincing goal-tie, it is not a good agency
-card. Do not post it just because the scan found something interesting.
+If the card cannot make a convincing goal-tie, it is not a good
+agency card. Do not post it just because the scan found something
+interesting.
 
-Keep the persuasion out of the image. The image is a billboard, not the
-card body: it should make the user recognize the action area and the goal
-impact at a glance. Put the exact steps, evidence, and "why this matters"
-copy in the title, subhead, body, and expandable.
+Keep the persuasion *off* the image — the image is the billboard,
+not the proof. The image's job is one-glance "what action, what
+goal-lever"; the body carries evidence and the exact steps.
 
 Convince via specifics, not begging:
 
@@ -152,8 +376,25 @@ Convince via specifics, not begging:
 - A user-quote callback ("you said '2× faster than Y' in #general — back it publicly")
 - A peer-network proof ("Z is YC W25 + warm investor path")
 
-Don't add "please accept this!" lines. Neediness reads as weakness and
-gets dismissed faster.
+Don't add "please accept this!" lines. Neediness reads as weakness
+and gets dismissed faster.
+
+### Compression bar
+
+The card must be 2-second-readable on a phone screen, sometimes late-
+night, sometimes mid-workout. Specifics:
+
+- Title ≤ 80 chars.
+- Subhead ≤ 100 chars and contains the impact phrase.
+- Draft expandable: 3-5 lines of paste-ready text. No reasoning, no
+  preamble.
+- Reasoning expandable: optional, max 3 sentences, only if it adds
+  urgency or unblocks a question the user would actually ask.
+- No bullet trees nested >1 level.
+- No URL pasted bare — always `[label](url)`. Place URLs inside
+  `--source-label` / `--source-url` for the canonical clickable header.
+- Image (`--image-text` or `--image-file`): default ON unless the card
+  type is genuinely text-only (e.g. a benchmark number table).
 
 ### Track signal, adapt over time
 
@@ -229,6 +470,19 @@ If acceptance rate drops below ~30% across a 10-card batch:
 Don't fight disengagement with more volume. The fastest way to lose
 the channel is to keep posting after the user stops engaging.
 
+## Voice for drafts
+
+If the user's `MEMORY.md` specifies their voice, follow it exactly. As a
+fallback default:
+
+- Match their typical reply length (sub-30 words for casual; longer only
+  when explicitly justified)
+- Match their casing (lowercase / sentence case)
+- Use their default opener / closer / CTA from MEMORY.md
+- Switch to their native language for native-language recipients
+- For high-status contacts, use the user's preferred VIP move (phone
+  number, signature CTA, in-person invite) if MEMORY.md captures one
+
 ## Canonical card layout
 
 ```
@@ -272,6 +526,41 @@ the channel is to keep posting after the user stops engaging.
    - Status / FYI → sometimes no expandable at all is right
 8. **Resist filling out a fixed schema.** Let card type drive shape.
 
+### Common block patterns
+
+The block heading is what the user reads first inside the expandable
+area — it should make clear at-a-glance whether they need to expand it.
+Most users rarely open the deep-context blocks; they exist for the cases
+where they do. Bake the *what's-inside* into the heading.
+
+| Pattern | When to use | Heading shape |
+|---|---|---|
+| **Drafted action** | Anything actionable (reply text, SQL, commands, PR review) | `📝 Drafted action` (or `📝 Drafted reply` / `📝 Drafted SQL`) |
+| **Why** | The reasoning / risk / what's at stake | `📎 Context` |
+| **Context: <person>** | Inbound from a real human — bake their name + role + history into the heading | `🔍 Context: Sarah Chen (Linear, $9.6k ARR)` |
+| **Context: <company>** | New signup / customer event — company facts | `🔍 Context: Stripe Inc — 4 corp seats from HN` |
+| **Variant A / B / C** | Picking between concrete drafts | `🅰️ Variant A — warm`, `🅱️ Variant B — terse`, `🅲 Variant C — technical` |
+| **Repro / Logs** | Bug reports — what reproduced it | `🐛 Repro` / `📜 Logs` |
+| **Timeline** | Incidents — when each thing happened | `⏱ Timeline` |
+
+Multiple Context blocks are fine when warranted (e.g. context about the
+person *and* about the company). Most cards won't need any. The point
+is: **the bold heading tells the user whether to bother expanding it**,
+so it has to name what's inside, not just label the slot.
+
+### Variant-picker example (3 blocks + 3 buttons)
+
+```bash
+agency-report --emoji "✍️" \
+  --title "Reply to Karol on HN — pick a tone" \
+  --source-label "HN comment thread" --source-url "https://news.ycombinator.com/item?id=…" \
+  --block '{"emoji":"🅰️","title":"Variant A — warm","body":"Hey Karol — …"}' \
+  --block '{"emoji":"🅱️","title":"Variant B — terse","body":"Karol — thanks for the shout. …"}' \
+  --block '{"emoji":"🅲","title":"Variant C — technical","body":"Karol — the LinkedIn flow you mentioned uses our iframe-race fix in v0.4.3. …"}' \
+  --button "Send A" --button "Send B" --button "Send C" \
+  --source "hn-karol-reply" --prompt "Send the chosen variant" --skip-if-exists
+```
+
 ### Pre-build the asset before posting — don't ask permission to create
 
 If a card's action is "make a video / chart / screenshot / image / draft
@@ -287,7 +576,7 @@ beforehand burns a slot for nothing — the user can't decide without
 seeing the thing.
 
 If the brief says "consider making a video about X", the card is `📹 Made
-a 30s demo of X — post to @mamagnus00? [yes / no / regen]` with the MP4
+a 30s demo of X — post to @<user-handle>? [yes / no / regen]` with the MP4
 attached, **not** `Make a video about X — yes/no?`. Same for charts
 (render the chart and attach), images (render and attach), email drafts
 (save to Gmail Drafts and surface the draft URL), Slack DMs (write the
@@ -328,8 +617,8 @@ serviceable but not beautiful.
 
 **Don't use Remotion for static cards.** Remotion is a video framework
 (React + headless Chrome render farm, ~10s per card). Reserve it for
-actual MP4s in topic 483 (growth-video). PIL renders in ~0.2s and produces
-the look Magnus has on file as the "good ones".
+actual MP4s in the growth-video topic. PIL renders in ~0.2s and produces
+the look the user has on file as the "good ones".
 
 ### `--image-text` — fallback, sparse WHAT + IMPACT shape
 
@@ -778,13 +1067,21 @@ storyboards, written 30-second concepts, "video idea" cards, or
 text-only suggestions: the user is on a phone making yes/no calls and
 can't watch text. They only know if a demo is sick by *seeing it*.
 
-For thread 483 specifically (Magnus's box): every Agency item must be
+For the growth-video topic on any given box: every Agency item must be
 or include a real MP4. If you don't have the video yet, don't post —
 go produce one first via `video-use`, Hyperframes (HTML→MP4),
 Remotion, or a screen-record + ffmpeg cut.
 
 Other topics may still want text cards. Check each topic's brief
 before drafting.
+
+## Honor access gaps
+
+When a tool can't see a surface (no auth, missing API key, integration
+not connected), name the gap *and the exact next step* the user must
+take to unblock it. Not "I couldn't access X" — but
+"X needs auth: run `/mcp` in your client → connect 'Y' → then I can
+scan it." Make the next scan strictly more useful than this one.
 
 ## Where things live
 
