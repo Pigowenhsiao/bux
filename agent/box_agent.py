@@ -138,6 +138,25 @@ def _read_tg_bot_username() -> str | None:
 # and pushes `claude_authed` over WS the moment it flips to loggedIn.
 
 CLAUDE_BIN = '/usr/bin/claude'
+
+
+def _find_codex_bin() -> str:
+	"""Locate the codex CLI. Mirrors the lookup paths bux's installer
+	bakes in (npm global → /usr/local → /usr/bin) so a freshly-installed
+	box and a long-lived one with custom paths both resolve.
+	Falls back to bare 'codex' (PATH lookup) if nothing exists yet — the
+	auth_poll then surfaces "command not found" cleanly."""
+	for p in (
+		'/home/bux/.npm-global/bin/codex',
+		'/usr/local/bin/codex',
+		'/usr/bin/codex',
+	):
+		if os.path.exists(p):
+			return p
+	return 'codex'
+
+
+CODEX_BIN = _find_codex_bin()
 # Written by browser-keeper.service on each rotation. Source of truth for
 # BU_BROWSER_ID + BU_CDP_WS + BU_BROWSER_LIVE_URL on the box.
 BROWSER_ENV_PATH = '/home/bux/.claude/browser.env'
@@ -227,6 +246,40 @@ async def check_claude_authed() -> bool:
 	out, _ = res
 	text = (out or b'').decode(errors='replace').lower()
 	return '"loggedin": true' in text or '"loggedin":true' in text
+
+
+async def check_codex_authed() -> bool:
+	"""Shell out to `codex login status`; return True iff logged in.
+
+	Codex prints human-readable status (e.g. "Logged in using ChatGPT")
+	on success and "not logged in" / "command not found" / similar on
+	failure. Matching plain-text substrings keeps us forward-compatible
+	with minor copy changes; the false case (CLI not installed, etc.)
+	just keeps codex_authed=false until the user installs / signs in.
+	"""
+	try:
+		proc = await asyncio.create_subprocess_exec(
+			CODEX_BIN,
+			'login',
+			'status',
+			stdout=asyncio.subprocess.PIPE,
+			stderr=asyncio.subprocess.STDOUT,
+			env={**os.environ, 'HOME': '/home/bux'},
+		)
+	except Exception:
+		return False
+	res = await _run_with_timeout(proc, 15)
+	if res is None:
+		return False
+	out, _ = res
+	text = (out or b'').decode(errors='replace').lower()
+	# Belt-and-braces: rc==0 alone isn't reliable across codex versions
+	# (some print "not logged in" but still exit 0), so require the
+	# explicit text marker. The "not" guard keeps us from false-positive
+	# matching "you are not logged in".
+	if 'not logged in' in text or 'command not found' in text:
+		return False
+	return 'logged in' in text
 
 
 class ShellSession:
@@ -534,6 +587,18 @@ class Agent:
 		self._claude_login_fd: int | None = None
 		self._claude_login_task: asyncio.Task | None = None
 		self._claude_login_attempt: int = 0
+		# Codex auth state — symmetric mirror of the claude side. Codex's
+		# device-auth flow (`codex login --device-auth`) prints both a URL
+		# and a one-time code on stdout, then waits for browser-side
+		# authorization and exits 0. No paste-the-code-back step (unlike
+		# claude), so the cmd dispatch only handles `codex_login_start` and
+		# `codex_login_cancel`.
+		self._codex_authed = False
+		self._codex_auth_wakeup = asyncio.Event()
+		self._codex_login_pid: int | None = None
+		self._codex_login_fd: int | None = None
+		self._codex_login_task: asyncio.Task | None = None
+		self._codex_login_attempt: int = 0
 		# Strong refs for fire-and-forget tasks (run_task dispatches). The
 		# event loop only weak-refs tasks from asyncio.create_task; without
 		# this set the GC can collect them mid-run and drop the output.
@@ -629,6 +694,7 @@ class Agent:
 
 			hb_task = asyncio.create_task(self._heartbeat_loop())
 			auth_task = asyncio.create_task(self._auth_poll_loop())
+			codex_auth_task = asyncio.create_task(self._codex_auth_poll_loop())
 			browser_task = asyncio.create_task(self._browser_id_poll_loop())
 			try:
 				async for raw in ws:
@@ -637,6 +703,7 @@ class Agent:
 				browser_task.cancel()
 				hb_task.cancel()
 				auth_task.cancel()
+				codex_auth_task.cancel()
 				self.ws = None
 
 	async def _heartbeat_loop(self) -> None:
@@ -683,6 +750,35 @@ class Agent:
 			return
 		except Exception:
 			LOG.exception('auth_poll_loop crashed')
+
+	async def _codex_auth_poll_loop(self) -> None:
+		"""Poll `codex login status`; notify cloud on flips. Mirror of
+		_auth_poll_loop but for codex. Same 1s/15s cadence so a successful
+		device-auth flow surfaces to the FE within the first second."""
+		start = asyncio.get_event_loop().time()
+		try:
+			while True:
+				authed = await check_codex_authed()
+				if authed != self._codex_authed:
+					self._codex_authed = authed
+					if authed:
+						await self._send({'type': 'codex_authed'})
+						LOG.info('codex is authed — notified cloud')
+					else:
+						await self._send({'type': 'codex_auth_failed'})
+				elapsed = asyncio.get_event_loop().time() - start
+				interval = 1.0 if elapsed < 60 else 15.0
+				try:
+					await asyncio.wait_for(
+						self._codex_auth_wakeup.wait(), timeout=interval
+					)
+					self._codex_auth_wakeup.clear()
+				except asyncio.TimeoutError:
+					pass
+		except asyncio.CancelledError:
+			return
+		except Exception:
+			LOG.exception('codex_auth_poll_loop crashed')
 
 	async def _browser_id_poll_loop(self) -> None:
 		"""Watch BROWSER_ENV_PATH for BU_BROWSER_ID changes.
@@ -846,6 +942,14 @@ class Agent:
 			await self._claude_login_code(code=msg.get('code', ''))
 		elif cmd == 'claude_login_cancel':
 			await self._claude_login_cancel()
+		elif cmd == 'codex_login_start':
+			# Codex device-auth flow. Unlike claude, no code paste step
+			# — we extract URL + one-time-code from stdout, surface them
+			# both to cloud, and the codex CLI auto-completes when the
+			# user authorizes in the browser. See _codex_login_start.
+			await self._codex_login_start()
+		elif cmd == 'codex_login_cancel':
+			await self._codex_login_cancel()
 		elif cmd == 'ping':
 			await self._send({'type': 'pong'})
 		else:
@@ -1659,6 +1763,248 @@ class Agent:
 			except Exception:
 				LOG.exception('claude_login: SIGTERM failed pid=%s', pid)
 			# Reap so we don't leave a zombie.
+			try:
+				_os.waitpid(pid, _os.WNOHANG)
+			except Exception:
+				pass
+		if fd is not None:
+			try:
+				_os.close(fd)
+			except Exception:
+				pass
+
+	# ------------------------------------------------------------------
+	# Codex device-auth (`codex login --device-auth`)
+	#
+	# Device-auth prints two artifacts on stdout: a fixed URL
+	# (https://auth.openai.com/codex/device) and a one-time code (e.g.
+	# `WSDR-LFCD`). The user opens the URL in any browser, types the
+	# code, authorizes — and the codex CLI on this box exits 0 when
+	# OpenAI signals success. Unlike claude there is no callback code
+	# the user needs to paste back into the terminal.
+	#
+	# State machine (per-attempt):
+	#   awaiting_url    → codex prints URL + one-time code on stdout.
+	#                     We forward both as `codex_login_url` (a single
+	#                     event to keep the cloud-side state machine
+	#                     simple — claude has separate URL / code
+	#                     stages because claude prints them separately).
+	#   awaiting_browser_auth → user is on the OpenAI page entering the
+	#                     code. Box-agent has nothing to do; the codex
+	#                     CLI is blocking on the device-auth poll.
+	#   done            → codex CLI exits 0; auth-poll picks up
+	#                     `codex_authed` and emits over WS. Pty exits;
+	#                     we clean up.
+	#   failed          → codex CLI exits non-zero (network error, code
+	#                     expired, user denied). We emit
+	#                     `codex_login_failed` with the last few stdout
+	#                     lines for the user to read.
+	# ------------------------------------------------------------------
+
+	async def _codex_login_start(self) -> None:
+		# Kill any prior in-flight attempt; running two device-auth flows
+		# in parallel makes no sense and the second would just confuse
+		# the user when the first is still pending.
+		await self._codex_login_cleanup()
+
+		import pty
+
+		try:
+			pid, fd = pty.fork()
+		except Exception as e:
+			LOG.exception('codex_login: pty.fork failed')
+			await self._send(
+				{'type': 'codex_login_failed', 'error': f'pty-fork: {e}'}
+			)
+			return
+
+		if pid == 0:
+			# Child. `codex login --device-auth` is the headless-friendly
+			# flow that prints URL + code instead of trying to open a
+			# browser locally (which would never work on a server box).
+			#
+			# Wide-COLUMNS keeps codex from soft-wrapping its banner /
+			# code line at 80 columns; the URL is short enough that
+			# wrapping isn't a hazard there but the formatted code line
+			# can break across two lines on narrow terminals.
+			try:
+				import os as _os
+
+				_os.environ['HOME'] = '/home/bux'
+				_os.environ['COLUMNS'] = '1000'
+				_os.environ['LINES'] = '50'
+				_os.execvp(CODEX_BIN, [CODEX_BIN, 'login', '--device-auth'])
+			except Exception:
+				_os._exit(127)
+
+		# Parent.
+		try:
+			import fcntl
+			import struct
+			import termios
+
+			fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', 50, 1000, 0, 0))
+		except Exception:
+			LOG.exception('codex_login: TIOCSWINSZ failed')
+
+		LOG.info('codex_login: pty forked pid=%s fd=%s', pid, fd)
+		self._codex_login_attempt += 1
+		self._codex_login_pid = pid
+		self._codex_login_fd = fd
+		self._codex_login_task = asyncio.create_task(
+			self._codex_login_read_loop(pid, fd)
+		)
+
+		await self._send({'type': 'ack', 'cmd': 'codex_login_start', 'ok': True})
+
+	async def _codex_login_read_loop(self, pid: int, fd: int) -> None:
+		"""Drain the pty: extract URL + one-time code, then run to EOF.
+
+		Codex prints the URL and a one-time code on separate lines (the
+		exact wording shifts across versions, but the URL always starts
+		with `https://auth.openai.com/codex/device` and the code matches
+		the device-code shape `[A-Z0-9]{4,}-[A-Z0-9]{4,}` or a single
+		6-12 char block). We forward the first match for each as a
+		single `codex_login_url` event so the cloud-side state machine
+		only has to track one transition.
+		"""
+		import re
+
+		loop = asyncio.get_running_loop()
+		announced = False
+
+		ansi_re = re.compile(
+			r'\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-_]'
+		)
+		# Codex's device-auth URL is a known origin/path; matching it
+		# explicitly avoids picking up an unrelated http(s) link from a
+		# warning / log line.
+		url_re = re.compile(r'https://auth\.openai\.com/codex/device\S*')
+		# Match either the dashed-block form (WSDR-LFCD) or a single
+		# all-caps run (BHFG7M). Same shape `_DEVICE_CODE_RE` uses in the
+		# OSS Telegram bot.
+		code_re = re.compile(r'\b(?:[A-Z0-9]{4,}(?:-[A-Z0-9]{4,})+|[A-Z0-9]{6,12})\b')
+		# Last few lines so we have something to surface in the failed
+		# message if the CLI exits non-zero.
+		recent_lines: list[str] = []
+		buf = ''
+		url: str | None = None
+		code: str | None = None
+
+		try:
+			while True:
+				try:
+					data = await loop.run_in_executor(
+						None, _read_with_timeout, fd, 4096, 0.5
+					)
+				except OSError:
+					LOG.info('codex_login: pty closed (pid=%s)', pid)
+					await self._send({'type': 'codex_login_exited'})
+					# Wake the auth poll so codex_authed flips quickly
+					# rather than waiting for the next 1s tick.
+					self._codex_auth_wakeup.set()
+					return
+				if data is None:
+					if self._codex_login_pid != pid:
+						return
+					continue
+
+				clean = ansi_re.sub('', data.decode('utf-8', 'replace'))
+				buf += clean
+				if len(buf) > 32_768:
+					buf = buf[-16_384:]
+				# Per-line bookkeeping for the failure-tail message.
+				while '\n' in clean:
+					line, clean = clean.split('\n', 1)
+					line = line.strip()
+					if line:
+						recent_lines.append(line)
+						if len(recent_lines) > 8:
+							recent_lines = recent_lines[-8:]
+
+				if not announced:
+					if url is None:
+						m = url_re.search(buf)
+						if m:
+							url = m.group(0).rstrip('.,)')
+					if code is None:
+						# Don't grab the first ALL-CAPS token in the
+						# buffer — wait until we see context that
+						# implies it really is a code. Otherwise we'd
+						# match e.g. "OPENAI" from the banner.
+						low = buf.lower()
+						if (
+							'one-time code' in low
+							or 'enter this code' in low
+							or 'enter the code' in low
+							or url is not None
+						):
+							for m in code_re.finditer(buf):
+								tok = m.group(0)
+								# Skip obvious banner words. The
+								# device-code form (XXXX-YYYY) is
+								# vanishingly unlikely to collide.
+								if '-' in tok or len(tok) >= 8:
+									code = tok
+									break
+					if url and code:
+						LOG.info(
+							'codex_login: extracted url=%s code=%s',
+							url, code,
+						)
+						await self._send(
+							{
+								'type': 'codex_login_url',
+								'url': url,
+								'code': code,
+							}
+						)
+						announced = True
+						# Trim the buffer so we don't keep matching the
+						# same URL/code on every tick.
+						buf = ''
+		except asyncio.CancelledError:
+			LOG.info('codex_login: read loop cancelled')
+			raise
+		except Exception:
+			LOG.exception('codex_login: read loop crashed')
+			# Best-effort: surface a failed event with whatever we've
+			# captured so the FE can show a useful message.
+			tail = '\n'.join(recent_lines[-4:]) or 'codex login crashed'
+			try:
+				await self._send({'type': 'codex_login_failed', 'error': tail})
+			except Exception:
+				pass
+
+	async def _codex_login_cancel(self) -> None:
+		await self._codex_login_cleanup()
+		await self._send({'type': 'ack', 'cmd': 'codex_login_cancel', 'ok': True})
+
+	async def _codex_login_cleanup(self) -> None:
+		"""Tear down any in-flight codex_login pty + reader task. Mirror
+		of _claude_login_cleanup."""
+		import os as _os
+		import signal
+
+		task = self._codex_login_task
+		pid = self._codex_login_pid
+		fd = self._codex_login_fd
+		self._codex_login_task = None
+		self._codex_login_pid = None
+		self._codex_login_fd = None
+		if task is not None and not task.done():
+			task.cancel()
+			try:
+				await task
+			except (asyncio.CancelledError, Exception):
+				pass
+		if pid:
+			try:
+				_os.kill(pid, signal.SIGTERM)
+			except ProcessLookupError:
+				pass
+			except Exception:
+				LOG.exception('codex_login: SIGTERM failed pid=%s', pid)
 			try:
 				_os.waitpid(pid, _os.WNOHANG)
 			except Exception:
