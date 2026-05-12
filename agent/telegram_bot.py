@@ -3859,15 +3859,43 @@ class Bot:
                     if not out:
                         out = (fb.stderr or "").strip() or f"(no output; rc={fb.returncode})"
                     if _is_claude_auth_error(out):
-                        # Cached status is now stale (a creds-expired 401
-                        # is the canonical "you got logged out" event).
-                        # Bust before starting login so subsequent checks
-                        # don't read a now-wrong "still logged in" value
-                        # from cache. This error came from the Claude lane,
-                        # so don't show the generic provider picker — start
-                        # Claude's OAuth flow directly and replace any stale
-                        # login terminal in this topic.
-                        _login_status_cache_invalidate("claude")
+                        # All cached status is now stale (a creds-expired
+                        # 401 is the canonical "you got logged out" event,
+                        # and on the cloud-wizard path the codex side of
+                        # the cache also pre-dates the user's sign-in).
+                        # Bust everything so the re-checks below read
+                        # fresh state.
+                        _login_status_cache_invalidate(None)
+                        _AGENT_AUTH_CACHE.clear()
+                        # Before asking the user to re-auth Claude, check
+                        # whether Codex is already signed in on this box —
+                        # that's the common case after the cloud wizard:
+                        # user picked Codex in step 3, Codex is good to
+                        # go, but the bot's auto-pick raced the auth-poll
+                        # and dispatched to Claude anyway. If Codex is
+                        # authed, bind this lane to Codex and re-dispatch
+                        # the task there instead of forcing a Claude OAuth
+                        # the user didn't ask for.
+                        if _is_agent_authed(AGENT_CODEX):
+                            _set_agent_for(key, AGENT_CODEX, self.state)
+                            self.send(
+                                chat_id,
+                                "Switching to Codex (Claude isn't signed in here yet).",
+                                reply_to=reply_to,
+                                thread_id=thread_id,
+                            )
+                            # Re-enter the run with the new binding —
+                            # _agent_for will pick up the lane's explicit
+                            # codex binding from state.
+                            return self.run_task(
+                                key,
+                                prompt,
+                                reply_to=reply_to,
+                                sender=sender,
+                            )
+                        # Codex isn't authed either → fall back to the
+                        # original Claude OAuth flow so the user can
+                        # actually sign in.
                         owner = _owner_for(chat_id, self.state)
                         self._cmd_claude_login(
                             chat_id,
