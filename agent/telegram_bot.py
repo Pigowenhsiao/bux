@@ -3273,6 +3273,7 @@ class Bot:
         self.api = f"https://api.telegram.org/bot{token}"
         self.client = httpx.Client(timeout=POLL_TIMEOUT + 10)
         self.state = load_state()
+        self._username: str | None = None
 
     # ----- Telegram API plumbing -----
 
@@ -3302,6 +3303,30 @@ class Bot:
         except Exception as e:
             LOG.warning("%s failed: %s", method, e)
             return {"ok": False}
+
+    def username(self) -> str:
+        """Return this bot's Telegram username, cached after the first lookup."""
+        if self._username is not None:
+            return self._username
+        me = self.call("getMe")
+        self._username = ((me.get("result") or {}).get("username") or "").strip()
+        return self._username
+
+    def strip_own_mention_suffix(self, text: str) -> tuple[str, bool]:
+        """Remove a trailing @ThisBot mention inserted by Telegram autocomplete.
+
+        In forum/group chats Telegram clients often complete a word with the
+        bot username, producing input such as `codex @my_bot`. For terminal
+        stdin that turns a valid shell command into extra argv. Strip only this
+        bot's own trailing mention; mentions in the middle of a message and
+        mentions of other users are preserved.
+        """
+        username = self.username()
+        if not text or not username:
+            return text, False
+        pattern = re.compile(rf"(?i)(^|\s)@{re.escape(username)}\s*$")
+        stripped = pattern.sub("", text).strip()
+        return stripped, stripped != text
 
     def send(
         self,
@@ -4748,6 +4773,13 @@ class Bot:
         slug = _lane_slug(key)
 
         owner = _owner_for(chat_id, self.state)
+        text, stripped_own_mention = self.strip_own_mention_suffix(text)
+        if stripped_own_mention:
+            LOG.info(
+                "stripped trailing own bot mention chat=%s thread=%s",
+                chat_id,
+                thread_id,
+            )
         cmd, arg = _parse_command(text)
 
         # `/terminal` — owner-only mode switch. Spawns a persistent bash
