@@ -78,9 +78,13 @@ for the exact persuasion-block shape.
 - **Surface DONE work, not forks.** A card says "I did X — commit?", never
   "Should I do X or Y?". Multi-option buttons only when each option is a
   different commitment ("post tweet only / linkedin only / all 3").
-- **Card body is short.** Verb-led one-line action + one context sentence.
-  Detailed framing belongs in expandables (collapsed) or in `--prompt`
-  (only the worker agent sees that).
+- **Card body is short and Mini-App-safe.** Think X.com post, not report:
+  verb-led headline, 1 visible reason line, optional image, then collapsed
+  Context / Draft / Evidence blocks. Never put raw investigation notes,
+  long IDs, timestamps, parent IDs, or multi-paragraph provenance in
+  `--description`; that field is visible in the Mini App and must stay
+  under about 240 characters. Detailed framing belongs in expandables
+  (collapsed) or in `--prompt` (only the worker agent sees that).
 - **Always via `agency-report`.** Never raw `tg-send` for an agency card.
 - **Dedup via `--source <slug> --skip-if-exists`.** Same signal → same
   slug → same row. If status ∈ {accepted, dismissed, regenerated, expired,
@@ -384,17 +388,73 @@ and gets dismissed faster.
 The card must be 2-second-readable on a phone screen, sometimes late-
 night, sometimes mid-workout. Specifics:
 
-- Title ≤ 80 chars.
+- Title ≤ 90 chars. Verb-led, human-readable, no internal numbering,
+  "SUPERSEDE", parent IDs, or long handles. The first visible words must
+  directly say the action: "Send...", "Reply...", "Open PR...", "Merge...",
+  "Check...", "Draft...", "Call...", "Publish...", "Delete...". Do not start
+  with abstract goal language like "Growth", "Context", or "Opportunity".
+- Visible body / `--description` ≤ 240 chars. 1-2 natural sentences:
+  what matters and why now. Put proof, names, dates, IDs, and raw
+  provenance in collapsed blocks, never in the visible body.
+- Write the visible body in plain human language, not scoring shorthand.
+  Do not show RICE fragments like `R: 3`, `I: 3`, `C: 9`, `E: 1`, opaque
+  IDs, frozen slugs, or internal category names. If scoring matters, turn it
+  into one readable sentence or hide it in evidence.
+- Use short paragraphs and intentional new lines for drafts/details. Every
+  visible sentence should be understandable without opening the database or
+  knowing internal conventions.
 - Subhead ≤ 100 chars and contains the impact phrase.
 - Draft expandable: 3-5 lines of paste-ready text. No reasoning, no
   preamble.
+- Multiple draft variants are allowed. Put them in the expandable as:
+  `Draft 1` then the exact text, blank line, `Draft 2` then the exact text.
+  Pair them with concrete buttons such as `Send Draft 1` and `Send Draft 2`.
+  Do not use one generic `Do it` button when the user should choose between
+  variants.
 - Reasoning expandable: optional, max 3 sentences, only if it adds
   urgency or unblocks a question the user would actually ask.
+- Context / Evidence expandables: collapsed by default. Keep each one
+  skimmable; if it is longer than ~8 phone lines, summarize harder.
 - No bullet trees nested >1 level.
 - No URL pasted bare — always `[label](url)`. Place URLs inside
   `--source-label` / `--source-url` for the canonical clickable header.
-- Image (`--image-text` or `--image-file`): default ON unless the card
-  type is genuinely text-only (e.g. a benchmark number table).
+  Only use `--source-label` when you also have a real `--source-url`; never
+  put category labels like "case study", "growth box", or "pipeline" in the
+  source slot.
+- Link output format for card text/details/comments is Markdown:
+  `[short human label](https://example.com/path?x=1&y=2)`. Do not use
+  Telegram HTML tags, raw `<a>` tags, reference-style links, or bare tracking
+  URLs in visible text. The visible label should be the thing the user cares
+  about: "Felix Slack reply", "Gmail thread", "PR #148", "Reddit comment".
+  Never make the visible label the raw domain/path.
+- Always pass `--source-label` and `--source-url` when the source has a
+  canonical place to open (Gmail thread, Slack message, GitHub PR, Reddit/X
+  post, Linear issue). Use a short label such as "Gmail thread" or "GitHub
+  PR"; the Mini App renders it as the compact clickable source link in the
+  post header.
+- Image: default to attaching `--image-file` or `--image` for Mini App cards
+  when it is possible and the image makes the decision faster or more fun:
+  a real screenshot, chart, generated image, logo/avatar composition, or
+  product/UI capture. Do **not** attach placeholder text art. If no useful
+  image can be generated or captured quickly, omit the image and let the Mini
+  App render a clean text post.
+- Mini App compatibility: cards render like an X.com feed item: compact
+  app/source icon, source handle, timestamp/age, short post text, compact
+  source link in the header, optional real media, and a sparse action row. The Mini App
+  does not render a fake image when none is supplied. Default expanded
+  sections should be rare: one `Show draft` block only when there is
+  paste-ready text. Do not add a generic "Context" block unless it names
+  the real human, app, company, or thread that supplies the context.
+- Button labels should be concrete when possible: "Send reply", "Merge PR",
+  "Create draft", "Post update". Generic yes/start labels are allowed but
+  render as `Do it` in the Mini App, so prefer a verb label when the action
+  is obvious.
+  Scrolling advances past a card; don't depend on a visible Skip button in
+  the Mini App. If your `agency-report` call would look ugly in that shape,
+  rewrite the card before posting.
+- The visible reason must say why this matters for the current goal in
+  plain language. Do not write generic "moves the goal forward" copy.
+  Name the concrete outcome, risk, or leverage.
 
 ### Track signal, adapt over time
 
@@ -490,20 +550,23 @@ fallback default:
 <emoji> <verb-led one-line action>
 <one context sentence>
 
-▾ 📝 Drafted action     (one expandable, when there's a draft)
-▾ 📎 Context            (optional second expandable)
+▾ 📝 Draft / idea       (one expandable, when there's a draft)
+▾ 💥 Why it matters     (impact, risk, upside)
+▾ 🔗 Source             (app/person/link, no raw IDs)
 
-[primary action] [⏭ Skip]
+[primary action] [optional secondary action]
 [third button]          ← 🧵 Open thread, 📝 Edit, or 🔁 More variants
 ```
 
 **Rules:**
 
 1. **Title = verb-led action**: `Reply to <person> on Slack — explain
-   v0.4.3 RC ETA`. Not `🤖 Agency #119 — wants help`.
+   v0.4.3 RC ETA`. Not `🤖 Agency #119 — wants help`. Never include
+   long IDs, log numbers, opaque hashes, or raw counters in the title.
 2. **One context sentence** under the title. No bullets, no "## Why this
-   matters" header. Prose.
-3. **One expandable for the draft**, default `📝 Drafted action`. Don't
+   matters" header. Prose. It must explain why this matters for the
+   user's active goal without using the phrase "moves the goal forward".
+3. **One expandable for the draft**, default `📝 Draft / idea`. Don't
    label it "Variant A" unless B and C actually exist with buttons to pick.
 4. **Multi-variant cards: one expandable per variant, NOT all variants
    crammed into a single block.** When a brief offers genuine A/B/C
@@ -512,19 +575,24 @@ fallback default:
    `📝 Variant C · escalate`. The user opens only the one they're
    considering. Stuffing all three into a single `Drafted action`
    expandable defeats the point of the collapse.
-5. **Optional `📎 Context`** for provenance / related threads / why this
-   is distinct. Skip when nothing useful. Empty expandables are worse than
-   no expandable. **Don't put internal log-entry numbers (`N=145`,
-   `N=146`) in here** — they're agency-cron bookkeeping the user
-   doesn't read. Drop the "X cards pending" framing too. The Context
-   block is ≤2 short prose lines or it doesn't ship.
-6. **Buttons in a 2+1 grid.** Row 1 = primary + Skip. Row 2 = third
-   button alone.
-7. **Per-card-type tweaks override**:
+5. **Source and why are not dumps.** Source is app/person/link, not raw
+   telemetry. Why is the impact or risk in one or two plain sentences.
+   **Don't put internal log-entry numbers (`N=145`, `N=146`), long
+   numeric IDs, raw counters, or hashes anywhere visible** — they're
+   agency-cron bookkeeping the user doesn't read. Drop the "X cards
+   pending" framing too.
+6. **Buttons are sparse.** Telegram cards may still include `⏭ Skip`, but
+   the Mini App shows only Comment + Start. The card must still make sense
+   when a user scrolls past it instead of tapping Skip.
+7. **Image generation is deliberate.** Prefer `agency-report --image-file`
+   with a real screenshot/chart/generated PNG when the visual teaches
+   something. Do not use `--image-text` for generic title cards in the Mini
+   App; a clean text-only X-style post is better than a fake image.
+8. **Per-card-type tweaks override**:
    - PR / merge → primary expandable is the diff or PR link
    - Video / demo → MP4 is the surface; no drafted-text expandable
    - Status / FYI → sometimes no expandable at all is right
-8. **Resist filling out a fixed schema.** Let card type drive shape.
+9. **Resist filling out a fixed schema.** Let card type drive shape.
 
 ### Common block patterns
 
@@ -587,14 +655,15 @@ expensive (e.g. minting an NFT, sending a paid SMS, calling a $100/run
 API). Then ask first. For free internal work — render, draft, scrape,
 preview — just do it.
 
-## Image-first
+## Image policy
 
-Include an image on **every** card unless it's a pure photo asset (video MP4,
-real chart, real screenshot — those carry their own visual). The image's job
-is to make the card 2-second-readable on a phone screen: **what** would
-happen if the user taps yes, and **why** it matters.
+Use images by default for Mini App cards when a useful visual can be generated
+or captured quickly: generated PNGs, screenshots, charts, logos, avatars, short
+video thumbnails, or product/UI captures. If no useful image exists, omit it.
+The Mini App is an X-style feed and text-only posts are valid; fake placeholder
+images make the feed slower to understand.
 
-### Style: gradient + color-emoji is the default. placehold.co is a fallback.
+### Style for generated card images
 
 Default look = a 1080×540 PIL render with a vertical linear gradient
 (top-dark → bottom-light, color picked per card mood from a fixed palette:
@@ -611,9 +680,9 @@ best on a phone in dark / system / TG-default themes — the gradient gives
 depth, color emoji renders as the actual color glyph (not an outline), white
 type holds across both ends of the gradient.
 
-`placehold.co` (`--image-text` below) is a fallback for emergency cards
-where a full PIL render isn't worth the budget — flat color, plain text,
-serviceable but not beautiful.
+`placehold.co` / `--image-text` is no longer the Mini App default. Use it only
+for Telegram-only emergency cards where a flat text image is explicitly better
+than no media.
 
 **Don't use Remotion for static cards.** Remotion is a video framework
 (React + headless Chrome render farm, ~10s per card). Reserve it for
@@ -677,16 +746,10 @@ haven't been vetted — TG caches pinned to the card.
 
 ### When to skip the image entirely
 
-Only when the visual would be strictly worse than its absence:
-
-- Pure status / FYI cards where one large emoji in the title carries the
-  whole signal.
-- Single-number cards (e.g. "deploy 200 OK") where the number IS the
-  message — putting it in an image too is visual noise.
-
-Default position: **include an image**. Defaulting to "no image" makes
-cards read as plain text in a phone scroll where every other agent's card
-has a visual. Yours get skipped.
+Skip the image whenever the only available visual is a title card, gradient,
+emoji-only placeholder, or duplicated copy. The feed should look like a clean
+X timeline item: post text first, optional real media below, source link at the
+end.
 
 ## Buttons
 
@@ -1058,6 +1121,32 @@ executing.
 
 A few forum topics expect a specific output shape; don't post the
 default text card there.
+
+## "agency start" / Mini App launch workflow
+
+When the user says `agency start`, `start agency`, or asks to begin a
+new Agency goal from the repo/Telegram, treat it as a product workflow,
+not a one-off brainstorming prompt.
+
+1. If the goal is missing, ask for the goal in one short question. If
+   the goal is present, restate it in one line and proceed.
+2. Ask for the cadence only if it is missing or ambiguous. Offer a sane
+   default of hourly scans, but accept concrete schedules like "every
+   30 minutes", "daily at 9", or "watch continuously".
+3. Create or reuse a dedicated Telegram forum topic for that goal and
+   open/offer the Mini App with `/miniapp` so the user can swipe action
+   items from that topic. In Telegram forums, `/miniapp` should post the
+   Mini App button in the current topic for the owner.
+4. Immediately generate an initial batch of about 10 high-signal action
+   items for the goal using the normal `agency-report` / `agency-card`
+   flow, so they appear in the Mini App. Do not wait for a later cron
+   before the user has something to swipe.
+5. If a cadence was requested, set up the recurring scan/check for that
+   topic. Each run should produce only new, deduped, high-confidence
+   action items and should respect the topic's shape rules.
+6. If the user presses "Generate more" or asks for more action items,
+   use the current topic/goal context, inspect what has already been
+   posted, and generate another batch for the same topic.
 
 **Growth / video topic** (typically named `🎬 growth-video` or similar
 — check the topic name before assuming an id). The only acceptable
