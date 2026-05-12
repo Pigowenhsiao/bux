@@ -1289,6 +1289,17 @@ def _is_agent_authed(agent: str) -> bool:
     Used to pick a sensible default agent for lanes the user hasn't
     explicitly bound. Subprocess cost (~1s the first call, free after)
     is paid only when an unbound lane fires its first message.
+
+    Runs the CLI as the `bux` user via `sudo -iu bux` — *not* as the
+    bot's own EUID (which is root, per the bux-tg.service unit). Both
+    claude and codex are Node CLIs; they resolve their auth file via
+    `os.userInfo().homedir` (the EUID's homedir), not `$HOME`, so a
+    root-EUID check looks at `/root/.codex/auth.json` and reports
+    "not logged in" even when the bux user is fully authed. The same
+    sudo-iu-bux wrapper is what `_claude_login_status` and
+    `_CodexProvider.check` use elsewhere — this function used to be
+    the lone exception, which is why the auto-pick kept misrouting
+    Codex-only users to Claude.
     """
     import subprocess
     import time as _time
@@ -1297,14 +1308,14 @@ def _is_agent_authed(agent: str) -> bool:
     cached = _AGENT_AUTH_CACHE.get(agent)
     if cached and now - cached[0] < _AGENT_AUTH_TTL_S:
         return cached[1]
-    cmd = [agent, "auth", "status"] if agent == AGENT_CLAUDE else [agent, "login", "status"]
+    sub = ["auth", "status"] if agent == AGENT_CLAUDE else ["login", "status"]
+    cmd = ["sudo", "-iu", "bux", agent, *sub]
     try:
         proc = subprocess.run(
             cmd,
             capture_output=True,
             timeout=10,
             text=True,
-            env={**os.environ, "HOME": "/home/bux"},
         )
         text = ((proc.stdout or "") + (proc.stderr or "")).lower()
         if agent == AGENT_CLAUDE:
