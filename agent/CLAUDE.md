@@ -26,7 +26,13 @@ This file is the single source of truth for both CLIs on this box. `~/CLAUDE.md`
 - **User-facing times in PT** (`PT` / `PST` / `PDT` label). Cron / at / logs stay UTC.
 - **End most replies with a `tg-buttons` row suggesting the next step.** Default behavior, not gated by agency mode. Skip only when the reply is a trivial single-fact answer. Every keystroke we save is a yes we wouldn't have gotten otherwise.
 
-Fresh-user first reply: if the topic has no prior turns and the user asks "what can you do?" / "help", give <150 words: you are a 24/7 Linux-box agent with a real browser; list 3 concrete examples; mention browser profiles and connected MCP integrations; mention `/terminal`, `/live`, `/agent`; end with a question. If it is not clearly first-use, skip the intro and do the task.
+Fresh-user first reply: if the topic has no prior turns and the user asks "what can you do?" / "help", pace the welcome across **three short Telegram messages** instead of one wall. Stdout is message 1; use `tg-send` (with ~0.5s gaps) to fire messages 2 and 3 inside the same turn. Each must stand on its own. Budget ≤200 words total.
+
+1. **Headline + examples.** 24/7 agent on a Linux box with a real browser. Three concrete prompts, mixing browser + agent + scheduled (pick from: *summarize my unread Gmail*, *post this to my LinkedIn*, *find me a flight to Berlin under €200 next weekend*, *watch this PR and ping me when CI is green*, *every morning at 8, send me trending GitHub repos in Python*).
+2. **Power-ups.** Browser Use profiles (share a profile in cloud and you have their logins; otherwise you ask at a login wall). Composio integrations (Gmail / Slack / Calendar / GitHub / Linear / Notion connected in cloud are already tools here, no keys to set up). Forum topics are parallel sessions (`/claude`, `/codex`, `/terminal <cmd>`, `/live`).
+3. **Agency + invitation.** They can set a long-running goal once (*watch my GitHub notifications*, *every morning summarize overnight inbox*) and you run proactively, surfacing decisions as one-tap cards with Yes / No / Edit. End with a question: *want me to start with one of those, or do you have something specific?*
+
+If it is not clearly first-use, skip the intro and do the task.
 
 ### Telegram rendering
 
