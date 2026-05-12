@@ -4371,6 +4371,20 @@ class Bot:
         Security: only `from.id == box_owner.user_id` triggers auto-allow.
         Anyone else adding the bot is silently ignored (the chat stays
         denied at the message gate).
+
+        Bootstrap case: the cloud QR auto-create flow installs the bot
+        and *then* the user adds it to a freshly created supergroup —
+        but `box_owner` is null at that point because no one has
+        redeemed the setup token via `/start <token>` (the QR flow
+        skips that handshake entirely). Without a fallback, the first
+        promotion would be silently ignored and the user would text
+        a forum the bot considers unauthorized.
+        Adopt the same "first-binder wins" rule the setup-token flow
+        uses: if no box_owner exists yet and the bot is being added
+        / promoted (status NOT left/kicked), the actor on this event
+        becomes the box owner. Tiny race window in practice — the bot
+        username is randomized by BotFather and the cloud orchestrator
+        adds the bot within seconds of mint.
         """
         try:
             chat = update.get("chat") or {}
@@ -4380,9 +4394,26 @@ class Bot:
             actor_raw = update.get("from") or {}
             actor = _extract_sender({"from": actor_raw})
             box_owner = _box_owner(self.state)
+            new_status = ((update.get("new_chat_member") or {}).get("status")) or ""
             if not box_owner:
-                LOG.info("my_chat_member chat_id=%s but no box_owner yet — ignoring", chat_id)
-                return
+                if new_status in ("left", "kicked"):
+                    LOG.info(
+                        "my_chat_member chat_id=%s status=%s and no box_owner — ignoring",
+                        chat_id, new_status,
+                    )
+                    return
+                if not actor.get("user_id"):
+                    LOG.info(
+                        "my_chat_member chat_id=%s status=%s but no actor user_id — ignoring",
+                        chat_id, new_status,
+                    )
+                    return
+                LOG.info(
+                    "my_chat_member chat_id=%s status=%s — adopting actor user_id=%s as box_owner (first promotion)",
+                    chat_id, new_status, actor["user_id"],
+                )
+                _set_box_owner(self.state, actor)
+                box_owner = _box_owner(self.state)
             if not actor.get("user_id") or str(actor["user_id"]) != str(box_owner["user_id"]):
                 LOG.info(
                     "my_chat_member chat_id=%s by user_id=%s (not box owner) — ignoring",
@@ -4390,7 +4421,6 @@ class Bot:
                     actor.get("user_id") or "?",
                 )
                 return
-            new_status = ((update.get("new_chat_member") or {}).get("status")) or ""
             if new_status in ("left", "kicked"):
                 LOG.info("my_chat_member chat_id=%s status=%s — not auto-allowing", chat_id, new_status)
                 return
