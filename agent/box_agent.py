@@ -1487,8 +1487,19 @@ class Agent:
 			rc = await start_proc.wait()
 			if rc != 0:
 				LOG.warning('systemctl start bux-tg exited rc=%s', rc)
+			for unit in ('bux-miniapp.service', 'bux-miniapp-tunnel.service'):
+				start_proc = await asyncio.create_subprocess_exec(
+					'systemctl',
+					'start',
+					unit,
+					stdout=asyncio.subprocess.DEVNULL,
+					stderr=asyncio.subprocess.DEVNULL,
+				)
+				rc = await start_proc.wait()
+				if rc != 0:
+					LOG.warning('systemctl start %s exited rc=%s', unit, rc)
 		except Exception:
-			LOG.exception('start bux-tg failed')
+			LOG.exception('start Telegram services failed')
 		await self._send({'type': 'ack', 'cmd': 'tg_install', 'ok': True})
 
 
