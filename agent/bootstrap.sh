@@ -93,8 +93,11 @@ fi
 # the symlinks track agent/ as new helpers ship. Idempotent (ln -sfn).
 ln -sfn "$REPO_DIR/agent/tg-send"        /usr/local/bin/tg-send
 ln -sfn "$REPO_DIR/agent/tg-buttons"     /usr/local/bin/tg-buttons
+ln -sfn "$REPO_DIR/agent/tg-schedule"    /usr/local/bin/tg-schedule
+ln -sfn "$REPO_DIR/agent/tg-schedule-fire" /usr/local/bin/tg-schedule-fire
 ln -sfn "$REPO_DIR/agent/agency-report"  /usr/local/bin/agency-report
 ln -sfn "$REPO_DIR/agent/bux-restart"    /usr/local/bin/bux-restart
+ln -sfn "$REPO_DIR/agent/bux-miniapp-tunnel" /usr/local/bin/bux-miniapp-tunnel
 
 # --- ~/AGENTS.md symlink for codex -----------------------------------------
 # install.sh creates `/home/bux/AGENTS.md → /home/bux/CLAUDE.md` on first
@@ -126,6 +129,11 @@ chown -h bux:bux /home/bux/.claude/skills/agency/SKILL.md
 # first use). Make sure the directory is writable by `bux` so any
 # agency-report invocation can init the schema without sudo.
 install -d -o bux -g bux -m 0755 /var/lib/bux
+install -d -o bux -g bux -m 0755 /var/lib/bux/miniapp-tunnel
+for agency_db_file in /var/lib/bux/agency.db*; do
+  [ -e "$agency_db_file" ] || continue
+  chown bux:bux "$agency_db_file"
+done
 
 # --- Cloud Composio MCP server (cloud-side proxy) -------------------------
 # Why MCP at all: cloud holds the platform's Composio API key plus every
@@ -237,11 +245,12 @@ polkit.addRule(function(action, subject) {
         // bux-tg: agent restarts after writing /etc/bux/tg.env on install.
         // box-agent: agent restarts itself at the tail of self-update so
         //   the new code takes effect.
-        // bux-browser-keeper / bux-ttyd / bux-miniapp: same self-update path.
+        // bux-browser-keeper / bux-ttyd / bux-miniapp / tunnel: same self-update path.
         if (unit == "bux-tg.service" ||
             unit == "box-agent.service" ||
             unit == "bux-browser-keeper.service" ||
             unit == "bux-miniapp.service" ||
+            unit == "bux-miniapp-tunnel.service" ||
             unit == "bux-ttyd.service") {
             return polkit.Result.YES;
         }
@@ -253,7 +262,7 @@ chmod 644 /etc/polkit-1/rules.d/50-bux-chat.rules
 # --- systemd units --------------------------------------------------------
 # Symlink rather than copy so a `git pull` propagates without re-running
 # bootstrap. systemd reads via the symlink fine.
-for unit in box-agent.service bux-ttyd.service bux-browser-keeper.service bux-tg.service bux-miniapp.service; do
+for unit in box-agent.service bux-ttyd.service bux-browser-keeper.service bux-tg.service bux-miniapp.service bux-miniapp-tunnel.service; do
   ln -sf "$AGENT_DIR/$unit" "/etc/systemd/system/$unit"
 done
 
@@ -273,7 +282,7 @@ cat > /etc/systemd/system/bux-boot-update.service <<'UNITEOF'
 Description=bux boot-time git pull + bootstrap
 After=network-online.target
 Wants=network-online.target
-Before=box-agent.service bux-tg.service bux-browser-keeper.service bux-ttyd.service bux-miniapp.service
+Before=box-agent.service bux-tg.service bux-browser-keeper.service bux-ttyd.service bux-miniapp.service bux-miniapp-tunnel.service
 
 [Service]
 Type=oneshot
@@ -308,10 +317,11 @@ systemctl enable box-agent.service
 systemctl enable bux-ttyd.service
 systemctl enable bux-browser-keeper.service
 
-# bux-tg and bux-miniapp stay enabled-but-conditional — only run once /etc/bux/tg.env
-# is written by the agent's tg_install handler.
+# bux-tg / bux-miniapp / bux-miniapp-tunnel stay enabled-but-conditional —
+# only run once /etc/bux/tg.env is written by the agent's tg_install handler.
 systemctl enable bux-tg.service
 systemctl enable bux-miniapp.service
+systemctl enable bux-miniapp-tunnel.service
 
 # Boot-time pull runs ahead of the others on every reboot.
 systemctl enable bux-boot-update.service
@@ -338,6 +348,11 @@ if systemctl is-active --quiet bux-tg.service; then
 fi
 if systemctl is-active --quiet bux-miniapp.service; then
   systemctl restart bux-miniapp.service
+fi
+if systemctl is-active --quiet bux-miniapp-tunnel.service; then
+  systemctl restart bux-miniapp-tunnel.service
+elif [ -f /etc/bux/tg.env ]; then
+  systemctl start bux-miniapp-tunnel.service 2>/dev/null || true
 fi
 if systemctl is-active --quiet bux-browser-keeper.service; then
   systemctl restart bux-browser-keeper.service

@@ -75,6 +75,9 @@ ALLOWED_FILE = Path("/etc/bux/tg-allowed.txt")
 STATE_FILE = Path("/etc/bux/tg-state.json")
 QUEUE_FILE = Path("/etc/bux/tg-queue.json")
 MINIAPP_DB = Path(os.environ.get("BUX_MINIAPP_DB", "/var/lib/bux/miniapp.db"))
+MINIAPP_TUNNEL_URL_FILE = Path(
+    os.environ.get("BUX_MINIAPP_TUNNEL_URL_FILE", "/var/lib/bux/miniapp-tunnel/url")
+)
 
 # Marker for "I've already told the user about this SHA". Lets transient
 # bux-tg restarts (systemd flaps, polling backoff) stay silent while
@@ -801,6 +804,29 @@ def _write_tg_env_value(key: str, value: str) -> None:
     _chmod_root_bux_640(TG_ENV)
 
 
+def _miniapp_public_url_from_env() -> str:
+    url = (
+        os.environ.get("BUX_MINIAPP_PUBLIC_URL", "").strip()
+        or _read_kv(TG_ENV).get("BUX_MINIAPP_PUBLIC_URL", "").strip()
+    )
+    if url:
+        return url
+    try:
+        return MINIAPP_TUNNEL_URL_FILE.read_text().strip()
+    except Exception:
+        return ""
+
+
+def _wait_for_miniapp_public_url(timeout_sec: float = 10.0) -> str:
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        url = _miniapp_public_url_from_env()
+        if url:
+            return url
+        time.sleep(0.25)
+    return _miniapp_public_url_from_env()
+
+
 def _start_miniapp_service() -> None:
     try:
         subprocess.run(
@@ -812,6 +838,19 @@ def _start_miniapp_service() -> None:
         )
     except Exception:
         LOG.exception("miniapp: failed to start bux-miniapp.service before launch")
+
+
+def _start_miniapp_tunnel_service() -> None:
+    try:
+        subprocess.run(
+            ["systemctl", "start", "bux-miniapp-tunnel.service"],
+            timeout=5,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        LOG.exception("miniapp: failed to start bux-miniapp-tunnel.service before launch")
 
 
 def _miniapp_local_error() -> str | None:
@@ -841,11 +880,12 @@ def _miniapp_public_error(url: str) -> str | None:
 
 def _ensure_miniapp_public_url() -> tuple[str, str | None]:
     _start_miniapp_service()
+    _start_miniapp_tunnel_service()
     local_error = _miniapp_local_error()
     if local_error:
         return "", local_error
 
-    url = os.environ.get("BUX_MINIAPP_PUBLIC_URL", "").strip()
+    url = _wait_for_miniapp_public_url()
     if url:
         if not url.startswith("https://"):
             return "", "`BUX_MINIAPP_PUBLIC_URL` must start with https:// for Telegram."

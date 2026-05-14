@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -88,6 +90,46 @@ class LoginRoutingTest(unittest.TestCase):
         )
         self.assertTrue(telegram_bot._is_claude_auth_error("You are out of extra usage."))
         self.assertTrue(telegram_bot._is_codex_auth_error("usage limit reached"))
+
+
+class MiniAppLaunchTest(unittest.TestCase):
+    def test_public_url_can_be_read_from_tg_env_when_process_env_is_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tg_env = Path(tmp) / "tg.env"
+            tg_env.write_text(
+                "TG_BOT_TOKEN=token\n"
+                "BUX_MINIAPP_PUBLIC_URL=https://stable.trycloudflare.com\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(telegram_bot, "TG_ENV", tg_env):
+                old = os.environ.pop("BUX_MINIAPP_PUBLIC_URL", None)
+                try:
+                    self.assertEqual(
+                        telegram_bot._miniapp_public_url_from_env(),
+                        "https://stable.trycloudflare.com",
+                    )
+                finally:
+                    if old is not None:
+                        os.environ["BUX_MINIAPP_PUBLIC_URL"] = old
+
+    def test_public_url_can_be_read_from_tunnel_url_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tg_env = Path(tmp) / "tg.env"
+            tunnel_url = Path(tmp) / "url"
+            tunnel_url.write_text("https://file.trycloudflare.com\n", encoding="utf-8")
+            with (
+                mock.patch.object(telegram_bot, "TG_ENV", tg_env),
+                mock.patch.object(telegram_bot, "MINIAPP_TUNNEL_URL_FILE", tunnel_url),
+            ):
+                old = os.environ.pop("BUX_MINIAPP_PUBLIC_URL", None)
+                try:
+                    self.assertEqual(
+                        telegram_bot._miniapp_public_url_from_env(),
+                        "https://file.trycloudflare.com",
+                    )
+                finally:
+                    if old is not None:
+                        os.environ["BUX_MINIAPP_PUBLIC_URL"] = old
 
 
 class AgencyButtonPromptTest(unittest.TestCase):
