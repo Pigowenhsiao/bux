@@ -78,7 +78,6 @@ MINIAPP_DB = Path(os.environ.get("BUX_MINIAPP_DB", "/var/lib/bux/miniapp.db"))
 MINIAPP_TUNNEL_URL_FILE = Path(
     os.environ.get("BUX_MINIAPP_TUNNEL_URL_FILE", "/var/lib/bux/miniapp-tunnel/url")
 )
-GOALS_FILE = Path(os.environ.get("BUX_GOALS_FILE", "/opt/bux/repo/private/goals.md"))
 
 # Marker for "I've already told the user about this SHA". Lets transient
 # bux-tg restarts (systemd flaps, polling backoff) stay silent while
@@ -200,89 +199,9 @@ def _record_miniapp_topic(chat_id: int, thread_id: int, title: str, source: str 
         LOG.debug("could not record mini app topic", exc_info=True)
 
 
-def _append_private_goal(title: str, context: str = "", cadence: str = "") -> None:
-    now = time.strftime("%Y-%m-%d", time.gmtime())
-    lines = ["", f"## {title}", f"- Added: {now}"]
-    if cadence:
-        lines.append(f"- Cadence: {cadence}")
-    if context:
-        lines.append(f"- Context: {context.strip()}")
-    lines.append("- Preference signals: learn from accepted, skipped, and completed Agency cards before suggesting more.")
-    try:
-        GOALS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        if not GOALS_FILE.exists() or not GOALS_FILE.read_text().strip():
-            GOALS_FILE.write_text(
-                "# Goals\n\n"
-                "Private high-level goals and Agency preferences for this box.\n"
-                "The Agency generator reads this before creating cards and updates it when the user clarifies goals.\n"
-            )
-        with GOALS_FILE.open("a") as fh:
-            fh.write("\n".join(lines) + "\n")
-    except Exception:
-        LOG.debug("could not append private goal", exc_info=True)
-
-
-def _record_miniapp_goal(title: str, context: str, cadence: str, chat_id: int, thread_id: int) -> int | None:
-    try:
-        MINIAPP_DB.parent.mkdir(parents=True, exist_ok=True)
-        now = int(time.time())
-        with sqlite3.connect(str(MINIAPP_DB)) as db:
-            db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS goals (
-                  id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  title TEXT NOT NULL,
-                  context TEXT NOT NULL DEFAULT '',
-                  cadence TEXT NOT NULL DEFAULT '',
-                  status TEXT NOT NULL DEFAULT 'active',
-                  tg_chat_id INTEGER,
-                  tg_thread_id INTEGER,
-                  created_at INTEGER NOT NULL,
-                  updated_at INTEGER NOT NULL
-                )
-                """
-            )
-            cur = db.execute(
-                """
-                INSERT INTO goals (title, context, cadence, tg_chat_id, tg_thread_id, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (title, context, cadence, chat_id or None, thread_id or None, now, now),
-            )
-            return int(cur.lastrowid)
-    except Exception:
-        LOG.debug("could not record mini app goal", exc_info=True)
-        return None
-
-
-def _agency_goal_prompt(title: str, context: str, cadence: str = "") -> str:
-    try:
-        goals_text = GOALS_FILE.read_text().strip()[:12000]
-    except Exception:
-        goals_text = ""
-    goals_block = (
-        f"\n\nPrivate goals file ({GOALS_FILE}):\n{goals_text}"
-        if goals_text
-        else f"\n\nPrivate goals file ({GOALS_FILE}) is empty or missing. First lock the user's high-level goals."
-    )
-    cadence_line = f"\nCadence or schedule mentioned by the user: {cadence}" if cadence else ""
-    return (
-        "Mini App goal created.\n\n"
-        f"Goal: {title}\n\n"
-        f"User context:\n{context or title}"
-        f"{cadence_line}"
-        f"{goals_block}\n\n"
-        "Use the Agency skill and /opt/bux/repo/agent/AGENCY.md. "
-        "This is the generator lane for a personal social feed: create cards the user will want to accept. "
-        "Read the goals file and agency.db history first so you do not repeat skipped ideas. "
-        "Do reversible/internal work before posting a card, then ask only at the visible boundary. "
-        "If the user explicitly says to work autonomously, that they are going away, or that no approval is needed, switch to Autopilot: do the private/reversible work directly, post concise progress updates in this topic, and create approval cards only for visible/external side effects. "
-        "Generate 10 high-signal Agency cards for this goal in this same Telegram topic using agency-report. "
-        "Every concrete card must name a specific person, company, thread, repo, PR, incident, signup, page, post, or file. "
-        "If this goal is still too vague, ask one short goal/context question or create high-level goal-lock cards instead of filler. "
-        "Set source_label/source_url to the real platform object; never use the bux GitHub repo URL as a generic source for non-GitHub cards. "
-        "Keep each card short, concrete, visual when useful, and easy to approve from the Mini App."
-    )
+# Goal persistence is the AGENT'S responsibility, not the bot's. When the
+# agent notices a new user goal in conversation, it writes to
+# /opt/bux/repo/private/goals.md itself. The bot stays a dumb pipe.
 
 # Failure reaction on the user's message. Telegram's free-tier reaction
 # allowlist excludes ⏳/✅/⚠️/❌ — this is a verified-allowed pick.
@@ -350,7 +269,7 @@ BOT_COMMANDS: list[tuple[str, str]] = [
     ("fast", "switch this topic's Codex lane to fast mode"),
     ("model", "show/set this topic's Codex model"),
     ("agency", "open the goal card feed"),
-    ("goal", "create an Agency goal"),
+    ("goal", "continuous goal — I keep working across turns, posting cards. Add 'don't ask me' or 'just do it' for autopilot."),
     ("miniapp", "open the goal card feed"),
     ("live", "live-view URL of the active browser"),
     ("queue", "pending tasks in this topic"),
@@ -366,208 +285,22 @@ BOT_COMMANDS: list[tuple[str, str]] = [
 
 
 # ---------------------------------------------------------------------------
-# MarkdownV2 helpers — Telegram's escape rules are strict and unforgiving.
-# These are unchanged from the legacy bot; rendering rules don't depend on
-# the lane / agent abstraction.
+# MarkdownV2 + chunking helpers — moved to bot/markdown.py.
+# Re-exported here so internal callers keep working unchanged.
 # ---------------------------------------------------------------------------
-
-# Every char in this set must be backslash-escaped outside an entity, per
-# https://core.telegram.org/bots/api#markdownv2-style. Inside ` ` and ``` ```
-# only ` and \ are special.
-_MDV2_SPECIALS = r"_*[]()~`>#+-=|{}.!"
-_MDV2_ESCAPE = {c: "\\" + c for c in _MDV2_SPECIALS}
-
-
-def _escape_mdv2_plain(s: str) -> str:
-    """Backslash-escape every MarkdownV2 special char in plain text."""
-    return "".join(_MDV2_ESCAPE.get(c, c) for c in s)
-
-
-def _escape_mdv2_code(s: str) -> str:
-    """Inside code spans / blocks, only ` and \\ need escaping."""
-    return s.replace("\\", "\\\\").replace("`", "\\`")
-
-
-def _to_tg_markdown_v2(text: str) -> str:
-    """Convert claude's standard markdown to Telegram MarkdownV2.
-
-    Handles the formatting claude actually emits: fenced code blocks,
-    inline code, **bold** / __bold__, *italic* / _italic_, [link](url).
-    Anything else is plain text and gets the full escape pass. The
-    400-fallback in send() covers gaps in this converter.
-    """
-    # 1) Pull fenced code blocks first so their bodies skip the inline pass.
-    blocks: list[str] = []
-
-    def _stash_block(m):
-        lang = (m.group(1) or "").strip()
-        body = _escape_mdv2_code(m.group(2))
-        blocks.append(f"```{lang}\n{body}\n```")
-        return f"\x00BLOCK{len(blocks) - 1}\x00"
-
-    text = re.sub(r"```([^\n`]*)\n(.*?)```", _stash_block, text, flags=re.DOTALL)
-
-    # 2) Inline code spans.
-    codes: list[str] = []
-
-    def _stash_code(m):
-        codes.append("`" + _escape_mdv2_code(m.group(1)) + "`")
-        return f"\x00CODE{len(codes) - 1}\x00"
-
-    text = re.sub(r"`([^`\n]+)`", _stash_code, text)
-
-    # 3) Bold / italic / links — interleave with plain text that gets full escape.
-    pattern = re.compile(
-        r"\*\*(.+?)\*\*"  # **bold**
-        r"|__(.+?)__"  # __bold__
-        r"|(?<![*\w])\*([^*\n]+?)\*(?!\w)"  # *italic*
-        r"|(?<![_\w])_([^_\n]+?)_(?!\w)"  # _italic_
-        r"|\[([^\]\n]+)\]\(([^)\n]+)\)"  # [text](url)
-    )
-
-    def _render(m):
-        bold = m.group(1) or m.group(2)
-        italic = m.group(3) or m.group(4)
-        link_text = m.group(5)
-        link_url = m.group(6)
-        if bold is not None:
-            return "*" + _escape_mdv2_plain(bold) + "*"
-        if italic is not None:
-            return "_" + _escape_mdv2_plain(italic) + "_"
-        url = link_url.replace("\\", "\\\\").replace(")", "\\)")
-        return "[" + _escape_mdv2_plain(link_text) + "](" + url + ")"
-
-    out: list[str] = []
-    pos = 0
-    for m in pattern.finditer(text):
-        if m.start() > pos:
-            out.append(_escape_mdv2_plain(text[pos : m.start()]))
-        out.append(_render(m))
-        pos = m.end()
-    if pos < len(text):
-        out.append(_escape_mdv2_plain(text[pos:]))
-    rendered = "".join(out)
-
-    # 4) Restore stashed code (already escaped inside).
-    rendered = re.sub(r"\x00CODE(\d+)\x00", lambda m: codes[int(m.group(1))], rendered)
-    rendered = re.sub(r"\x00BLOCK(\d+)\x00", lambda m: blocks[int(m.group(1))], rendered)
-    return rendered
-
-
-def _render_expandable_blockquote(text: str) -> str:
-    """Wrap `text` in a Telegram MarkdownV2 expandable blockquote.
-
-    Syntax: first line starts with `**>`, subsequent lines with `>`, and
-    the whole thing closes with `||` appended to the last line. The body
-    is escaped as plain MDV2 — we don't try to honor inline markdown
-    inside the collapsed section. That keeps the renderer simple and
-    avoids interactions between blockquote markup and code spans.
-
-    Returns "" for empty input so callers can build conditional sections.
-    """
-    if not text or not text.strip():
-        return ""
-    lines = text.split("\n")
-    escaped = [_escape_mdv2_plain(line) for line in lines]
-    out: list[str] = []
-    for i, line in enumerate(escaped):
-        prefix = "**>" if i == 0 else ">"
-        out.append(prefix + line)
-    out[-1] = out[-1] + "||"
-    return "\n".join(out)
-
-
-_STEP_SEPARATOR = "\n---------------\n"
-
-
-def _build_header(total: int, shown: int, sub_agents: int, marker: str) -> str:
-    """Compose the first (collapsed-visible) line of the blockquote.
-
-    `<turn emoji> N messages` always. When trimming kicks in we extend with
-    `(last K shown)` so the count remains honest about what's actually
-    rendered. When sub-agents have been spawned we append
-    ` · 🤖 +M sub-agents`. The indicator is omitted entirely when
-    sub_agents == 0 so quiet turns stay quiet.
-    """
-    if shown < total:
-        head = f"{marker} {total} messages (last {shown} shown)"
-    else:
-        head = f"{marker} {total} message" + ("s" if total != 1 else "")
-    if sub_agents > 0:
-        head += f" · 🤖 +{sub_agents} sub-agent" + ("s" if sub_agents != 1 else "")
-    return head
-
-
-def _render_collapsed_steps(
-    parts: list[str],
-    total: int,
-    max_body: int,
-    sub_agents: int = 0,
-    trailer: str = "",
-    marker: str = "💭",
-) -> str:
-    """Render `parts` as one expandable blockquote with a message-count header.
-
-    `trailer`, if given, becomes the LAST line inside the blockquote,
-    separated from the messages by a divider — used for the
-    stats footer so it only shows up when the user expands the messages.
-    Pass raw text; escaping happens in
-    `_render_expandable_blockquote`.
-
-    Returns "" for empty input. Trims OLDEST blocks until the rendered
-    body fits under `max_body`; keeps at least the most recent one so
-    something always renders.
-    """
-    if not parts:
-        return ""
-    work = list(parts)
-    while True:
-        body = _build_header(total, len(work), sub_agents, marker) + "\n" + _STEP_SEPARATOR.join(work)
-        if trailer:
-            body += _STEP_SEPARATOR + trailer
-        out = _render_expandable_blockquote(body)
-        if len(out) <= max_body or len(work) <= 1:
-            return out
-        work = work[1:]
-
-
-def _render_streaming_view(
-    blocks: list[str],
-    max_body: int,
-    sub_agents: int = 0,
-    marker: str = "💭",
-) -> str:
-    """Render every assistant text block as one collapsed blockquote.
-
-    Used while the agent is still emitting — keeps the bubble compact on
-    a chatty turn. The collapsed first line shows `<emoji> N messages` (plus a
-    `🤖 +M sub-agents` suffix when applicable) so the user sees progress
-    without expanding. Surviving blocks are separated by a
-    `---------------` divider when expanded.
-    """
-    parts = [b.strip() for b in blocks if b and b.strip()]
-    if not parts:
-        return ""
-    return _render_collapsed_steps(parts, len(parts), max_body, sub_agents=sub_agents, marker=marker)
-
-
-def _fit_tg_markdown(text: str, max_len: int) -> str:
-    """Render text as MarkdownV2, clipping raw text until it fits Telegram."""
-    rendered = _to_tg_markdown_v2(text)
-    if len(rendered) <= max_len:
-        return rendered
-    suffix = "\n\n..."
-    lo, hi = 0, len(text)
-    best = _to_tg_markdown_v2(suffix.strip())
-    while lo <= hi:
-        mid = (lo + hi) // 2
-        candidate = _to_tg_markdown_v2(text[:mid].rstrip() + suffix)
-        if len(candidate) <= max_len:
-            best = candidate
-            lo = mid + 1
-        else:
-            hi = mid - 1
-    return best
+from bot.markdown import (  # noqa: E402
+    _MDV2_ESCAPE,
+    _MDV2_SPECIALS,
+    _STEP_SEPARATOR,
+    _build_header,
+    _escape_mdv2_code,
+    _escape_mdv2_plain,
+    _fit_tg_markdown,
+    _render_collapsed_steps,
+    _render_expandable_blockquote,
+    _render_streaming_view,
+    _to_tg_markdown_v2,
+)
 
 
 def _humanize_tokens(n: int) -> str:
@@ -749,70 +482,7 @@ def _render_final_view(
     return steps_md + "\n\n" + final_md
 
 
-def _chunk_for_telegram(text: str, max_len: int) -> list[str]:
-    """Split text into messages that fit Telegram's 4096-char cap.
-
-    Telegram silently drops `sendMessage` payloads over 4096 chars and
-    400s an `editMessageText` of the same shape, so any text destined
-    for TG has to be pre-split by us. Boundaries are tried in order of
-    decreasing readability:
-        paragraph (\\n\\n) → line (\\n) → sentence end → word (space) → char.
-
-    The chunker is greedy: it packs as much as fits below `max_len` per
-    message before cutting. Trailing/leading whitespace at the seam is
-    stripped so the user doesn't see a stray blank line at the top of
-    the next bubble.
-    """
-    if not text:
-        return [" "]
-    if len(text) <= max_len:
-        return [text]
-    chunks: list[str] = []
-    remaining = text
-    while len(remaining) > max_len:
-        cut = _find_split_point(remaining, max_len)
-        head = remaining[:cut]
-        stripped = head.rstrip()
-        chunks.append(stripped or head)
-        remaining = remaining[cut:].lstrip()
-    if remaining:
-        chunks.append(remaining)
-    return chunks
-
-
-def _find_split_point(text: str, max_len: int) -> int:
-    """Pick the best index ≤ max_len to cut `text` at.
-
-    Prefers paragraph, then single-newline, then sentence terminator,
-    then word boundary, then a hard char cut as last resort. Each tier
-    requires the boundary to sit past `max_len // 4` so we don't emit
-    a tiny chunk just because there happens to be one structural break
-    near the start of the window.
-    """
-    window = text[:max_len]
-    floor = max(max_len // 4, 1)
-
-    idx = window.rfind("\n\n")
-    if idx >= floor:
-        return idx + 2
-
-    idx = window.rfind("\n")
-    if idx >= floor:
-        return idx + 1
-
-    sentence_idx = -1
-    for terminator in (". ", "! ", "? ", ".\n", "!\n", "?\n"):
-        i = window.rfind(terminator)
-        if i != -1 and i + len(terminator) > sentence_idx:
-            sentence_idx = i + len(terminator)
-    if sentence_idx >= floor:
-        return sentence_idx
-
-    idx = window.rfind(" ")
-    if idx >= floor:
-        return idx + 1
-
-    return max_len
+from bot.markdown import _chunk_for_telegram, _find_split_point  # noqa: E402
 
 
 def _parse_command(text: str) -> tuple[str | None, str]:
@@ -1184,12 +854,16 @@ def _prefix_sender(
     can tell whether the current sender is the box owner or a guest who
     joined the group later. No hard authorization gate — just context.
 
-    Slash-command prompts (e.g. `/compact`) are passed through verbatim:
-    claude's slash-command parser only fires when the prompt STARTS with
-    `/`, and a `[from …]` prefix would leave the slash a few lines into
-    the body, defeating the parse.
+    Real CLI slash-commands (e.g. `/compact`) need the slash to be the
+    first character so claude's parser fires, so they bypass the prefix.
+    Other `/`-prefixed inputs (e.g. `/goal X`, `/<anything not in the
+    short allowlist>`) get the sender tag — they're just user content
+    from the CLI's point of view, and losing the owner-vs-guest signal
+    would weaken the doctrine.
     """
-    if prompt.startswith("/"):
+    CLI_SLASH_COMMANDS = {"/compact", "/clear", "/clear-context"}
+    head = prompt.split(None, 1)[0] if prompt else ""
+    if head in CLI_SLASH_COMMANDS:
         return prompt
     label = _sender_label(sender)
     if not label:
@@ -3991,6 +3665,12 @@ class Bot:
         if box_env.get("BUX_PROFILE_ID"):
             env["BUX_PROFILE_ID"] = box_env["BUX_PROFILE_ID"]
             env["BU_PROFILE_ID"] = box_env["BUX_PROFILE_ID"]
+        if box_env.get("BUX_BOX_TOKEN"):
+            # Codex's composio MCP entry uses `bearer_token_env_var = "BUX_BOX_TOKEN"`
+            # — codex reads this env var at MCP-connect time and sends
+            # `Authorization: Bearer <value>`. Without it in the codex
+            # subprocess env, the MCP call hits the cloud with no auth.
+            env["BUX_BOX_TOKEN"] = box_env["BUX_BOX_TOKEN"]
         for k in ("BU_CDP_WS", "BU_BROWSER_ID"):
             if browser_env.get(k):
                 env[k] = browser_env[k]
@@ -4355,11 +4035,13 @@ class Bot:
                     # No env= here: the `sudo VAR=val …` prefix is the only env
                     # the child claude sees. Don't leak the bot's own environ
                     # (TG_BOT_TOKEN, TG_SETUP_TOKEN) through sudo.
+                    # No timeout: /goal autopilot runs can take days. The
+                    # only kill paths are explicit /cancel + the SIGKILL
+                    # that lane-promotion triggers on a follow-up message.
                     fb = subprocess.run(
                         fb_cmd,
                         capture_output=True,
                         text=True,
-                        timeout=1800,
                         cwd=str(WORKSPACE),
                     )
                     out = (fb.stdout or "").strip()
@@ -4384,14 +4066,6 @@ class Bot:
                     )
                     if fb.returncode != 0:
                         self.react(chat_id, reply_to, EMOJI_ERROR)
-                except subprocess.TimeoutExpired:
-                    self.react(chat_id, reply_to, EMOJI_ERROR)
-                    self.send(
-                        chat_id,
-                        "⏱ Timed out after 30 min.",
-                        reply_to=reply_to,
-                        thread_id=thread_id,
-                    )
                 except Exception as e:
                     self.react(chat_id, reply_to, EMOJI_ERROR)
                     self.send(
@@ -4785,7 +4459,6 @@ class Bot:
             "Pick the agent you want to drive this box:",
             reply_markup=_login_picker_reply_markup(),
         )
-        self._ensure_default_agency_heartbeat(chat_id)
 
     def _auto_allow_chat(
         self,
@@ -4815,112 +4488,6 @@ class Bot:
                 )
             except Exception:
                 LOG.exception("auto-allow welcome send failed for chat_id=%s", chat_id)
-        self._ensure_default_agency_heartbeat(chat_id)
-
-    def _ensure_default_agency_heartbeat(self, chat_id: int) -> None:
-        """Schedule the first Agency heartbeat once per allowed chat.
-
-        The heartbeat prompt asks the agent to reschedule itself. This keeps
-        Agency proactive by default without adding another always-on worker.
-        """
-        key = str(chat_id)
-        heartbeats = self.state.setdefault("agency_heartbeats", {})
-        if heartbeats.get(key):
-            return
-        prompt = (
-            "Agency heartbeat. Use /opt/bux/repo/agent/AGENCY.md. "
-            "Read /opt/bux/repo/private/goals.md and /var/lib/bux/agency.db. "
-            "If the user has no clear goals, ask one short goal question or create high-level goal cards. "
-            "If goals are clear, observe connected context and create concrete Agency cards in Telegram and the Mini App. "
-            "Avoid duplicates and skipped ideas. Schedule your next heartbeat for +30 minutes."
-        )
-        env = os.environ.copy()
-        env["TG_CHAT_ID"] = str(chat_id)
-        env["TG_THREAD_ID"] = "0"
-        try:
-            result = subprocess.run(
-                [
-                    "/usr/local/bin/tg-schedule",
-                    "+30 minutes",
-                    "--fresh",
-                    "--name",
-                    "Agency heartbeat",
-                    prompt,
-                ],
-                env=env,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                timeout=10,
-            )
-            if result.returncode == 0:
-                heartbeats[key] = {"scheduled_at": int(time.time()), "cadence": "30m"}
-                save_state(self.state)
-                LOG.info("agency heartbeat scheduled for chat_id=%s: %s", chat_id, result.stdout.strip())
-            else:
-                LOG.warning("agency heartbeat schedule failed for chat_id=%s: %s", chat_id, result.stdout.strip())
-        except Exception:
-            LOG.exception("agency heartbeat schedule failed for chat_id=%s", chat_id)
-
-    def _start_agency_goal_from_command(
-        self,
-        chat_id: int,
-        thread_id: int,
-        title: str,
-        sender: dict,
-        reply_to: int | None = None,
-    ) -> None:
-        title = " ".join((title or "").split()).strip()
-        if not title:
-            self.send(
-                chat_id,
-                "Use `/goal <what should Agency optimize for?>`",
-                reply_to=reply_to,
-                thread_id=thread_id,
-                markdown=True,
-            )
-            return
-        context = title
-        goal_thread = thread_id
-        chat_type_hint = "topic"
-        if chat_id < 0:
-            try:
-                res = self.call("createForumTopic", chat_id=chat_id, name=title[:128])
-                if res.get("ok"):
-                    goal_thread = int(res["result"].get("message_thread_id") or thread_id)
-                    _record_miniapp_topic(chat_id, goal_thread, title, "telegram-goal")
-                    chat_type_hint = "new topic"
-            except Exception:
-                LOG.exception("goal: createForumTopic failed")
-        _append_private_goal(title, context)
-        goal_id = _record_miniapp_goal(title, context, "", chat_id, goal_thread)
-        prompt = _agency_goal_prompt(title, context)
-        self.send(
-            chat_id,
-            f"Goal created: {title}\n\nAgency is generating cards for it now.",
-            reply_to=reply_to,
-            thread_id=goal_thread or thread_id,
-        )
-        try:
-            self.run_task(
-                (chat_id, goal_thread),
-                prompt,
-                reply_to=None,
-                sender={
-                    "user_id": str(sender.get("user_id") or ""),
-                    "username": sender.get("username") or "",
-                    "name": sender.get("name") or "",
-                },
-            )
-            LOG.info("goal: started goal_id=%s chat=%s thread=%s via %s", goal_id, chat_id, goal_thread, chat_type_hint)
-        except Exception:
-            LOG.exception("goal: run_task failed")
-            self.send(
-                chat_id,
-                "Goal was saved, but I couldn't start the generator turn.",
-                reply_to=reply_to,
-                thread_id=goal_thread or thread_id,
-            )
 
     def _handle_my_chat_member(self, update: dict) -> None:
         """React to the bot's own membership changing in some chat.
@@ -5514,8 +5081,8 @@ class Bot:
                 "/claude — switch this topic to Claude\n"
                 "/claude login — sign in Claude through a terminal flow\n"
                 "/claude logout — sign out Claude\n"
+                "/goal <what to work on> — continuous goal-mode, copilot by default (I suggest, you accept). Append 'don't ask me' / 'just do it' / 'no approvals' for autopilot.\n"
                 "/agency — open the Mini App\n"
-                "/goal <goal> — create an Agency goal and generate cards\n"
                 "/miniapp — open the Mini App\n"
                 "/live — live-view URL of the active browser\n"
                 "/queue — pending tasks in this topic\n"
@@ -5532,18 +5099,12 @@ class Bot:
                 thread_id=thread_id,
             )
             return
-        if cmd == "/goal":
-            if not owner or not _is_owner(sender, owner):
-                self.send(
-                    chat_id,
-                    "`/goal` is owner-only.",
-                    reply_to=mid,
-                    thread_id=thread_id,
-                    markdown=True,
-                )
-                return
-            self._start_agency_goal_from_command(chat_id, thread_id, arg, sender, reply_to=mid)
-            return
+        # `/goal` is intentionally NOT intercepted by the bot. It flows
+        # through as a normal turn input — codex with `[features] goals
+        # = true` runs its native plan→act→test loop; claude treats it
+        # as a goal-shaped prompt and the system prompt's "act on goal"
+        # doctrine drives behavior. The agent itself saves goals to
+        # /opt/bux/repo/private/goals.md when it notices a new one.
         if cmd in ("/agency", "/miniapp"):
             if not owner or not _is_owner(sender, owner):
                 self.send(
@@ -7163,6 +6724,14 @@ class Bot:
         chat = msg.get("chat") or {}
         chat_id = chat.get("id")
         if not chat_id:
+            # No chat means the message was deleted before the user tapped.
+            # Toast something so the tap isn't silent.
+            self.call(
+                "answerCallbackQuery",
+                callback_query_id=cb["id"],
+                text="This card is gone (the chat or message was deleted).",
+                show_alert=False,
+            )
             return
         sender = cb.get("from") or {}
         owner = _owner_for(chat_id, self.state)
@@ -7176,7 +6745,14 @@ class Bot:
             return
         parts = data.split(":")
         if len(parts) not in (3, 4):
-            self.call("answerCallbackQuery", callback_query_id=cb["id"])
+            # Malformed callback_data — show a toast so the user doesn't
+            # tap into the void.
+            self.call(
+                "answerCallbackQuery",
+                callback_query_id=cb["id"],
+                text="This button's data is malformed — can't process it.",
+                show_alert=False,
+            )
             return
         try:
             target_thread = int(parts[1])
@@ -7210,13 +6786,34 @@ class Bot:
         # to legacy custom behavior.
         sugg_row: dict | None = None
         db = None
+        db_error: str | None = None
         try:
             import agency_db
             db = agency_db.conn()
             sugg_row = agency_db.find_by_message(db, chat_id, msg_id)
             agency_db.record_decision(db, chat_id, msg_id, label)
-        except Exception:
+        except Exception as exc:
             LOG.exception("agency_db record_decision failed")
+            db_error = str(exc)
+
+        if db_error:
+            # DB write failed; the tap is still proceeding (button kinds
+            # don't all require the DB), but we owe the user a visible
+            # signal so the tap doesn't feel like a no-op.
+            try:
+                self.call(
+                    "sendMessage",
+                    chat_id=chat_id,
+                    message_thread_id=target_thread or None,
+                    text=(
+                        "⚠️ Couldn't record this decision in agency.db "
+                        f"({_html.escape(db_error[:120], quote=False)}). "
+                        "Continuing with the tap anyway."
+                    ),
+                    parse_mode="HTML",
+                )
+            except Exception:
+                LOG.exception("agency: failed to surface DB error to user")
 
         # Pull original button labels from the DB so we can restore an
         # unpicked button losslessly when the user changes their mind.
@@ -7234,42 +6831,16 @@ class Bot:
         # work lives in a separate thread. That way the deep-link is
         # glued to the card permanently — never lost when other cards
         # stack up below.
-        topic_title = (sugg_row.get("title") or label)[:128] if sugg_row else label
-        spawn = bool(sugg_row and sugg_row.get("spawn_topic"))
-        existing_worker = int(sugg_row.get("worker_topic_id") or 0) if sugg_row else 0
-        new_thread_id = 0
-        if spawn and existing_worker and existing_worker != target_thread:
-            # Multi-tap: a prior Yes/Edit already spawned a topic for this
-            # suggestion. Reuse it instead of forking again.
-            new_thread_id = existing_worker
-        elif spawn and kind in ("action", "refine"):
-            try:
-                res = self.call("createForumTopic", chat_id=chat_id, name=topic_title)
-                if res.get("ok"):
-                    new_thread_id = int(res["result"].get("message_thread_id") or 0)
-            except Exception:
-                LOG.exception("createForumTopic failed")
-            if not new_thread_id:
-                LOG.warning(
-                    "agency: createForumTopic returned no thread; falling back to in-place"
-                )
-                spawn = False
+        # One-goal-one-topic (v8): button taps always dispatch in the card's
+        # own topic. If the agent decides a tap should spawn a new lane (rare,
+        # for big new projects), it does so explicitly via `tg-schedule
+        # "+1 minute" --fresh` from inside the dispatched turn.
+        work_thread = target_thread
 
-        # work_thread = where the lane actually runs.
-        if kind in ("action", "refine"):
-            work_thread = new_thread_id if (spawn and new_thread_id) else target_thread
-        else:
-            work_thread = target_thread
-
-        # URL button row to glue onto the card. Only when work lives in
-        # a different thread than the card itself.
+        # v8: work always runs in the card's own topic. The "open thread"
+        # deep-link row used to glue a spawned-topic URL here, but with
+        # one-goal-one-topic there's no spawned topic to link to.
         append_url_row = None
-        if new_thread_id and new_thread_id != target_thread:
-            chat_str = str(chat_id).removeprefix("-100")
-            append_url_row = [{
-                "text": "🧵 Open thread",
-                "url": f"https://t.me/c/{chat_str}/{new_thread_id}",
-            }]
 
         if kind == "custom" or not sugg_row:
             # Custom buttons stack — additive Style A on the tapped one,
@@ -7360,6 +6931,42 @@ class Bot:
                 )
             except Exception:
                 LOG.exception("agency action dispatch failed")
+        elif kind == "more":
+            # User wants a different angle on the same idea. Build a
+            # regeneration prompt that hands the agent the original card
+            # context and asks for a fresh draft. The agent re-runs the
+            # agency-report with a different --source slug so the new card
+            # doesn't dedupe against the old one.
+            orig_title = sugg_row.get("title") or ""
+            orig_desc = sugg_row.get("description") or ""
+            orig_prompt = sugg_row.get("prompt") or ""
+            orig_source = sugg_row.get("source") or ""
+            more_prompt = (
+                "The user tapped 🔁 More on this agency card. "
+                "Regenerate it with a different angle — different draft, different framing, or a different concrete next step. "
+                "Stay on the same underlying idea; the user wants variety, not a different topic.\n\n"
+                f"Original title: {orig_title}\n"
+                f"Original context: {orig_desc}\n"
+                f"Original prompt: {orig_prompt}\n"
+                f"Original source slug: {orig_source}\n\n"
+                "Post one fresh agency-report card in this same topic with a different --source slug "
+                "(e.g. append `-v2` or describe the new angle) so it doesn't dedupe."
+            )
+            try:
+                self.run_task(
+                    (chat_id, work_thread),
+                    more_prompt,
+                    reply_to=None,
+                    sender={
+                        "user_id": str(sender.get("id") or ""),
+                        "username": sender.get("username") or "",
+                        "name": (sender.get("first_name") or "") + (
+                            (" " + sender["last_name"]) if sender.get("last_name") else ""
+                        ),
+                    },
+                )
+            except Exception:
+                LOG.exception("agency more dispatch failed")
         elif kind == "refine":
             # Show the full card context as visible messages so the user
             # can see what they're refining. The plain-text twin used to

@@ -404,15 +404,23 @@ fi
 # /opt/bux/agent → /opt/bux/repo/agent (symlinked at the top of this script),
 # so browser_keeper.py / telegram_bot.py don't need to be copied — the
 # systemd units below execute them straight from the symlinked path. Only
-# CLAUDE.md gets installed (different destination — bux's home dir).
+# the system prompt gets installed (different destination — bux's home dir).
+# Claude Code reads ~/CLAUDE.md and Codex reads ~/AGENTS.md; both symlink to
+# the one source-of-truth file so editing once updates both CLIs.
 say 'installing bux agent files'
-install -o bux -g bux -m 0644 "$REPO_DIR/agent/CLAUDE.md"         /home/bux/CLAUDE.md
-# Codex reads AGENTS.md (its own convention) from cwd and up. The bot
-# runs codex with cwd=/home/bux, so a symlink here gives codex the same
-# system prompt as claude — keeping the two agents behaviorally aligned
-# without a second copy to keep in sync.
-ln -sfn /home/bux/CLAUDE.md /home/bux/AGENTS.md
-chown -h bux:bux /home/bux/AGENTS.md
+install -o bux -g bux -m 0644 "$REPO_DIR/agent/system-prompt.md" /home/bux/system-prompt.md
+ln -sfn /home/bux/system-prompt.md /home/bux/CLAUDE.md
+ln -sfn /home/bux/system-prompt.md /home/bux/AGENTS.md
+chown -h bux:bux /home/bux/CLAUDE.md /home/bux/AGENTS.md
+
+# Seed an empty private/goals.md. The agent reads + writes this file. An
+# empty file is fine — the agent appends entries when the user mentions
+# a goal. Without this, the agent's first read of the file errors loudly
+# until something writes to it.
+install -d -o bux -g bux -m 0755 /opt/bux/repo/private
+if [ ! -e /opt/bux/repo/private/goals.md ]; then
+	install -o bux -g bux -m 0644 /dev/null /opt/bux/repo/private/goals.md
+fi
 
 # --- tg-send: shell helper to push a message to the bound TG chat ---------
 # Used by `at` / cron jobs (and claude from a shell) so scheduled work can
@@ -450,6 +458,9 @@ install -m 0755 "$REPO_DIR/agent/tg-approve.py" /usr/local/bin/tg-approve
 # get in the way.
 install -m 0755 "$REPO_DIR/agent/tg-schedule"      /usr/local/bin/tg-schedule
 install -m 0755 "$REPO_DIR/agent/tg-schedule-fire" /usr/local/bin/tg-schedule-fire
+install -m 0755 "$REPO_DIR/agent/new-topic"        /usr/local/bin/new-topic
+# Friendlier alias `schedule` for the agent + user; both names work.
+ln -sfn /usr/local/bin/tg-schedule /usr/local/bin/schedule
 
 # --- pre-seed ~/.claude.json so first `claude` run skips dialogs -----------
 if [ ! -f /home/bux/.claude.json ]; then
@@ -545,6 +556,28 @@ if ! sudo -iu bux command -v codex >/dev/null 2>&1; then
 		|| warn 'codex install failed (non-fatal — /codex login will hint how to install later)'
 fi
 
+# Enable Codex /goal feature so `/goal <X>` autopilot works out of the box.
+# Setting is `goals = true` under `[features]` in ~/.codex/config.toml
+# (Codex CLI v0.128.0+; experimental). Idempotent: leaves existing config
+# alone if a [features] block or goals = true is already present.
+sudo -u bux -H bash -c '
+CODEX_CONFIG="$HOME/.codex/config.toml"
+mkdir -p "$(dirname "$CODEX_CONFIG")"
+if [ ! -f "$CODEX_CONFIG" ]; then
+	cat > "$CODEX_CONFIG" <<TOML
+[features]
+goals = true
+TOML
+elif ! grep -qE "^[[:space:]]*goals[[:space:]]*=" "$CODEX_CONFIG"; then
+	if grep -qE "^[[:space:]]*\[features\]" "$CODEX_CONFIG"; then
+		echo "install: warn — existing [features] block in $CODEX_CONFIG; add goals = true manually to enable /goal" >&2
+	else
+		printf "\n[features]\ngoals = true\n" >> "$CODEX_CONFIG"
+	fi
+fi
+chmod 0644 "$CODEX_CONFIG"
+'
+
 # --- login banner: print live browser URL on each ssh login ---------------
 if ! grep -q 'BU_BROWSER_LIVE_URL' /home/bux/.profile 2>/dev/null; then
 	cat >> /home/bux/.profile <<'PROFILE'
@@ -573,7 +606,7 @@ for unit in bux-browser-keeper.service bux-ttyd.service bux-tg.service bux-minia
 done
 
 systemctl daemon-reload
-systemctl enable bux-browser-keeper.service bux-ttyd.service bux-miniapp.service >/dev/null
+systemctl enable bux-browser-keeper.service bux-ttyd.service >/dev/null
 
 # --- optional: Telegram bot setup -----------------------------------------
 if [ -n "$TG_BOT_TOKEN" ]; then
@@ -599,8 +632,10 @@ EOF
 	# can't spam arbitrary users.
 	chmod 640 /etc/bux/tg.env
 	chown root:bux /etc/bux/tg.env
-	systemctl enable bux-tg.service bux-miniapp.service >/dev/null
-	systemctl restart bux-tg.service bux-miniapp.service
+	# bux-miniapp + tunnel are lazy-started by the bot on /miniapp;
+	# only bux-tg is always-on once /etc/bux/tg.env exists.
+	systemctl enable bux-tg.service >/dev/null
+	systemctl restart bux-tg.service
 
 	# Resolve bot username for the user-facing instructions.
 	bot_username=$(curl -fsSL "https://api.telegram.org/bot${TG_BOT_TOKEN}/getMe" | jq -r '.result.username' 2>/dev/null || echo '')

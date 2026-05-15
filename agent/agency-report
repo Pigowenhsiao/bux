@@ -1,125 +1,32 @@
 #!/opt/bux/venv/bin/python
-"""agency-report — record + post an Agency suggestion to Telegram.
+"""agency-report — record + post one card to Telegram.
 
-Always:
-  1. records the suggestion in /var/lib/bux/agency.db
-  2. posts the body to TG with inline-keyboard buttons (default 3 in a 2+1 grid)
-  3. wires the message_id back into the row so a button tap can record
-     the user's decision against the right suggestion.
+Three things every call: insert a row in `/var/lib/bux/agency.db`, post
+the card to TG (image + expandable blocks + inline-keyboard buttons),
+and wire the resulting message_id back into the DB row so a button tap
+finds the right suggestion.
 
-Default buttons: ✅ Yes · ⏭ Skip · ✏️ Edit
-Default layout: row 1 = [Yes][Skip], row 2 = [Edit].
+Default buttons: ✅ Yes · 🔁 More · ⏭ Skip. All taps dispatch in the
+card's own topic (one-goal-one-topic; if the agent needs a fresh lane
+for a big new project, it spawns one explicitly with `tg-schedule
+"+1 minute" --fresh`). Yes runs --prompt as a new agent turn; More asks
+the agent to regenerate with a different angle; Skip records dismissal,
+no LLM call.
 
-Each default button has a *kind* the bot uses to pick semantics:
-  • Yes  → kind=action  → bot opens a fresh forum topic, dispatches the
-                          suggestion's --prompt there as a new lane.
-  • Skip → kind=dismiss → bot records the dismissal, posts a 1-line ack,
-                          does NOT call the LLM. (Cheap "saw it, move on".)
-  • Edit → kind=refine  → bot opens a fresh forum topic with the question
-                          "What would you change?" — agent waits for the
-                          user's reply, no immediate LLM dispatch.
+Callback data shape: `agcy:<thread>:<idx>:<kind>` where kind ∈
+{action, more, dismiss, custom}. Custom --button entries get
+kind=custom and dispatch a synthesized `[agency-button] <label>`
+turn in the same topic.
 
-Callback data shape: `agcy:<thread>:<idx>:<kind>` where kind is one of
-{action, dismiss, refine, custom}. Custom button sets passed via --button
-all get kind=custom (existing dispatch-in-same-topic behavior).
+Blocks are specified via --block (repeatable, JSON object). Each block
+becomes one expandable. Typical copilot card is two (option A + option
+B). If no --block is given and --prompt is set, a single auto-generated
+draft block is created so the user can see what'll fire on Yes-tap.
 
-Custom buttons: pass --button (repeatable). Layout wraps in pairs of two.
-
-Canonical card layout (HTML parse mode). Order is locked; the *number*
-of expandable blocks is variable (0, 1, 2, N — your call):
-
-  [optional image — skip when text alone is clearer]
-  <emoji> <b>headline</b>           ← write the specific action here:
-                                       "Reply to <user> on Slack: …" or
-                                       "Merge PR #347" — *not* "Agency 95"
-                                       or a generic source description.
-  <optional subhead>
-
-  <blockquote expandable>…</blockquote>   ← zero or more
-  <blockquote expandable>…</blockquote>
-  …
-
-  <i>source: <link></i>             ← at the very end, italic, optional.
-
-  [Yes] [Skip]
-  [Edit]
-
-Blocks are specified one of two ways:
-  • Legacy 2-block: --draft (becomes "📝 Drafted action") and --reasoning
-    (becomes "📎 Context"). Backward-compatible with the original PR.
-  • Flexible: --block (repeatable, JSON object). Each --block becomes
-    one expandable. Use this when you have a different shape — e.g.
-    three variants A/B/C, or a single "context" block, or zero blocks
-    (--info-only with just headline + source link).
-
-Yes-tap routing — auto-default by thread context:
-  • If the card is posted inside any forum topic, --spawn-topic defaults
-    to OFF — Yes/Edit dispatch in the same goal/topic. The agent may
-    create subtopics later if the work genuinely needs fan-out.
-  • If there is no current forum topic, --spawn-topic defaults to ON so
-    the accepted work gets a lane.
-
-Routing policy:
-  • Default in forum topics: in-place "✅ Yes" for short work.
-  • Use --spawn-topic / "🧵 Yes (new thread)" only for bigger projects:
-    recurring monitors, multi-step investigations, work likely to take
-    >10 tool calls, or anything that will produce multiple follow-ups.
-
-Override the auto-default with:
-  • --spawn-topic    — force spawn (always create a new topic on Yes/Edit)
-  • --no-spawn-topic — force in-place (always run in the current thread)
-
-Default-button labels reflect the chosen routing so the user can tell
-from the button alone whether tapping forks a topic:
-  • spawn:    "🧵 Yes (new thread)" / "⏭ Skip" / "🧵 Edit (new thread)"
-  • in-place: "✅ Yes" / "⏭ Skip" / "✏️ Edit"
-
-If --image (URL), --image-file (local path), or --image-text (auto-rendered
-placeholder) is given, the image renders above the body. For bodies that
-fit Telegram's 1024-char caption budget the card is sent via sendPhoto;
-otherwise it falls back to sendMessage with a large link-preview-image
-above the text (visually identical, no length cap).
-
-`--image-file` uploads a local file via multipart so the model never has
-to know the bot token or build a public URL. Auto-detects content type
-from the file extension (png/jpg/jpeg/gif/webp).
-
-`--info-only` strips the inline keyboard entirely. Use for FYI cards
-(weekly stats, observations) where there's nothing to act on. The row
-is still recorded in the DB so dedup works.
-
-Field mapping:
-  --emoji              prepended to the bold headline
-  --title              the headline (required)
-  --source-label       short clickable label like "GitHub #347"
-  --source-url         URL the source label links to
-  --subhead            optional one-line under the headline
-  --image              direct image URL
-  --image-file         path to a local image file (multipart upload)
-  --image-text         alt: shorthand text → auto-generated local card image
-  --block              repeatable; each value is a JSON object
-                       {emoji, title, body[, body_html]} → one expandable.
-                       When given, fully overrides --draft / --reasoning.
-                       Use for 3-variant pickers, info-only cards, or any
-                       non-2-block shape.
-  --draft              legacy: actionable content (first expandable).
-                       Falls back to --prompt when omitted.
-  --reasoning          context block (second expandable, "📎 Context").
-                       Falls back to --description when omitted.
-  --description        legacy alias for --reasoning (kept for back-compat)
-  --prompt             exact action that runs if user taps Yes — also fills
-                       draft when --draft is not given.
-  --importance         high|med|low (default med)
-  --source             stable slug for dedupe
-  --skip-if-exists     suppress posting if the source slug already has a
-                       non-pending row
-  --button             repeatable; overrides the default 3-button set.
-                       Custom buttons all get kind=custom.
-  --info-only          omit the inline keyboard entirely (FYI cards).
-  --thread-id          forum topic to post into (defaults to $TG_THREAD_ID)
-
-Inputs are HTML-escaped by default. To embed raw HTML in a field use the
-`--<field>-html` long form (e.g. `--draft-html '<code>...</code>'`).
+Run `agency-report --help` for the flag reference. Image rendering uses
+PIL (1080×540 gradient with emoji + caps headline + sentence-case why);
+agency-report falls back to sendMessage + large link-preview when the
+body would exceed Telegram's 1024-char caption cap.
 """
 from __future__ import annotations
 
@@ -141,18 +48,12 @@ sys.path.insert(0, str(REPO_AGENT))
 import agency_db  # noqa: E402
 
 # (label, kind) tuples. Kind drives the bot's callback semantics.
-# Two label variants — picked at post time based on --spawn-topic so
-# the user can tell from the button alone whether tapping will run
-# in-place or fork a new forum topic.
-DEFAULT_BUTTONS_INPLACE: list[tuple[str, str]] = [
+# One canonical set — one goal, one topic, no spawn-topic label variants.
+# `more` asks the agent to regenerate this card with a different angle.
+DEFAULT_BUTTONS: list[tuple[str, str]] = [
     ("✅ Yes", "action"),
+    ("🔁 More", "more"),
     ("⏭ Skip", "dismiss"),
-    ("✏️ Edit", "refine"),
-]
-DEFAULT_BUTTONS_SPAWN: list[tuple[str, str]] = [
-    ("🧵 Yes (new thread)", "action"),
-    ("⏭ Skip", "dismiss"),
-    ("🧵 Edit (new thread)", "refine"),
 ]
 TG_CAPTION_LIMIT = 1024
 
@@ -250,7 +151,7 @@ def _render_image_text_file(args: argparse.Namespace) -> str | None:
     except Exception:
         return None
 
-    # AGENCY.md tells callers to write `\n` in shell args; bash double-quotes
+    # Callers write `\n` in shell args (see image-text rules); bash double-quotes
     # don't expand the escape, so argv carries the literal 2-char sequence.
     # Translate it (and `\\n`) into real newlines before splitting, otherwise
     # the renderer draws a literal "\n" glyph in the image.
@@ -265,10 +166,6 @@ def _render_image_text_file(args: argparse.Namespace) -> str | None:
     width, height = 1080, 540
     top = (31, 41, 55)
     bottom = (20, 184, 166)
-    if args.importance == "high":
-        top, bottom = (76, 29, 149), (236, 72, 153)
-    elif args.importance == "low":
-        top, bottom = (51, 65, 85), (100, 116, 139)
 
     img = Image.new("RGB", (width, height), top)
     pix = img.load()
@@ -343,12 +240,10 @@ def _coerce_button_label(raw: str) -> str:
 
 
 def _resolve_buttons(args: argparse.Namespace) -> list[tuple[str, str]]:
-    """Returns list of (label, kind). Custom buttons all get kind='custom'.
-    Default-set labels reflect --spawn-topic so the user can tell from
-    the button alone whether tapping will run here or fork a topic."""
+    """Returns list of (label, kind). Custom buttons all get kind='custom'."""
     if args.button:
         return [(_coerce_button_label(label), "custom") for label in args.button]
-    return list(DEFAULT_BUTTONS_SPAWN if args.spawn_topic else DEFAULT_BUTTONS_INPLACE)
+    return list(DEFAULT_BUTTONS)
 
 
 def _build_keyboard(
@@ -371,18 +266,13 @@ def _build_keyboard(
 def _resolve_blocks(args: argparse.Namespace) -> list[dict]:
     """Build the ordered list of expandable blocks rendered in the card.
 
-    Two ways to specify them:
-      • --block JSON (repeatable): full control. Each value is a JSON
-        object {"emoji": "📝", "title": "Variant A", "body": "..."}.
-        When ANY --block is passed, the legacy --draft / --reasoning
-        flags are ignored — --block fully overrides them.
-      • Legacy --draft / --reasoning (each renders one block): the
-        original 2-block shape, useful for the common case.
+    Pass --block JSON (repeatable). Each value is a JSON object:
+      {"emoji": "📝", "title": "Variant A", "body": "..."}
+    or with raw HTML: {..., "body": "<b>X</b>", "body_html": true}.
 
-    Body content is HTML-passed-through when --block is used; the caller
-    is responsible for escaping (use the helper to wrap raw text). For
-    --draft / --reasoning, the existing escape rules apply (raw HTML via
-    --draft-html / --reasoning-html, otherwise auto-escaped).
+    If no --block is passed and --prompt is set, a single block with the
+    prompt as the body is auto-generated so the user can see what'll run
+    on Yes-tap.
 
     Returns a list of {emoji, title, body_html} dicts.
     """
@@ -406,26 +296,16 @@ def _resolve_blocks(args: argparse.Namespace) -> list[dict]:
             })
         return out
 
-    blocks: list[dict] = []
-    draft = _resolve_field(args.draft, args.draft_html)
-    if not draft and args.prompt:
-        draft = f"<pre>{html.escape(args.prompt, quote=False)}</pre>"
-    if draft:
-        blocks.append({
-            "emoji": args.draft_emoji or "📝",
-            "title": args.draft_title or "Drafted action",
-            "body_html": draft,
-        })
-    reasoning = _resolve_field(args.reasoning, args.reasoning_html)
-    if not reasoning and args.description:
-        reasoning = _esc(args.description)
-    if reasoning:
-        blocks.append({
-            "emoji": args.reasoning_emoji or "📎",
-            "title": args.reasoning_title or "Context",
-            "body_html": reasoning,
-        })
-    return blocks
+    # No --block: auto-generate one from --prompt so the user always sees
+    # what'll fire on Yes-tap. Cards with no prompt + no block + no
+    # info-only flag are caught by the validation in main().
+    if (args.prompt or "").strip():
+        return [{
+            "emoji": "📝",
+            "title": "Drafted action",
+            "body_html": f"<pre>{html.escape(args.prompt, quote=False)}</pre>",
+        }]
+    return []
 
 
 def _build_body(args: argparse.Namespace) -> str:
@@ -623,39 +503,14 @@ def main() -> int:
         default=None,
         help='Repeatable expandable block as JSON: '
         '\'{"emoji":"📝","title":"Variant A","body":"..."}\'. '
-        "When given, overrides --draft / --reasoning. Pass any number "
-        "of --block flags for 0/1/2/N expandables.",
+        "Pass any number of --block flags for 0/1/2/N expandables.",
     )
-    p.add_argument("--draft", help="Actionable content (first expandable).")
-    p.add_argument("--draft-title", default="Drafted action", help="Title of the draft block.")
-    p.add_argument("--draft-emoji", default="📝", help="Emoji prefix on the draft block.")
-    p.add_argument(
-        "--reasoning",
-        help="Context block (second expandable). Provenance, why-now, "
-        "related threads, anything supporting the decision but not "
-        "the action itself.",
-    )
-    p.add_argument("--reasoning-title", default="Context", help="Title of the context block.")
-    p.add_argument("--reasoning-emoji", default="📎", help="Emoji prefix on the context block.")
     p.add_argument("--title-html", help="Raw HTML for the headline (skips escaping).")
     p.add_argument("--source-label-html", help="Raw HTML for the source label.")
     p.add_argument("--subhead-html", help="Raw HTML for the subhead.")
-    p.add_argument("--draft-html", help="Raw HTML for the draft block body.")
-    p.add_argument("--reasoning-html", help="Raw HTML for the why block body.")
-    p.add_argument(
-        "--description",
-        default="",
-        help="Legacy alias: used as reasoning if --reasoning is not given.",
-    )
     p.add_argument(
         "--prompt",
-        help="Exact action that runs if user taps Yes — also fills draft when --draft is not given.",
-    )
-    p.add_argument(
-        "--importance",
-        choices=("high", "med", "low"),
-        default="med",
-        help="Priority bucket for triage. Default: med.",
+        help="Exact action that runs if user taps Yes — also fills the auto-generated draft block when no --block is given.",
     )
     p.add_argument(
         "--source",
@@ -666,37 +521,12 @@ def main() -> int:
         action="append",
         default=None,
         help="Custom button LABEL (plain string). Repeatable. Each gets "
-        "kind=custom. Pass the visible text only — e.g. --button \"❌ No\". "
-        "NOT JSON. (--block takes JSON; --button does not.) "
-        "Defensive: a JSON object with a `text` field is coerced to its "
-        "text, but write plain strings to be safe.",
+        "kind=custom. Plain text only — e.g. --button \"❌ No\". NOT JSON.",
     )
     p.add_argument(
         "--info-only",
         action="store_true",
         help="Drop the inline keyboard entirely (FYI cards with no action).",
-    )
-    spawn_grp = p.add_mutually_exclusive_group()
-    spawn_grp.add_argument(
-        "--spawn-topic",
-        dest="spawn_topic",
-        action="store_const",
-        const=True,
-        default=None,
-        help="On Yes/Edit tap, spawn a fresh forum topic and dispatch "
-        "the lane there. Use for agency-loop cards (each cycle's cards "
-        "get their own topics) or any case where the work warrants a "
-        "dedicated thread. Overrides the auto-default.",
-    )
-    spawn_grp.add_argument(
-        "--no-spawn-topic",
-        dest="spawn_topic",
-        action="store_const",
-        const=False,
-        help="On Yes/Edit tap, dispatch in the same thread the card "
-        "lives in. Overrides the auto-default. Use when the agent is "
-        "already deep in one topic and follow-up cards should keep the "
-        "conversation in-place.",
     )
     p.add_argument(
         "--thread-id",
@@ -738,12 +568,6 @@ def main() -> int:
 
     db = agency_db.conn()
 
-    # spawn_topic auto-default: forum topics are goal/session lanes, so
-    # accepted cards stay in that lane unless the card explicitly asks
-    # to spawn. A non-topic chat still gets a worker topic.
-    if args.spawn_topic is None:
-        args.spawn_topic = not bool(args.thread_id)
-
     buttons = [] if args.info_only else _resolve_buttons(args)
     button_labels_for_db = [label for label, _ in buttons]
     blocks = _resolve_blocks(args)
@@ -763,11 +587,16 @@ def main() -> int:
             )
             return 0
 
+    # DB description was historically the legacy --reasoning text. After v7
+    # the blocks fully replace it; we store the concatenated block bodies so
+    # search / dedup still see something searchable.
+    db_description = "\n\n".join(
+        (b.get("body_html") or "").strip() for b in blocks
+    ).strip() or (args.prompt or "")
     sugg_id = agency_db.insert(
         db,
         title=args.title,
-        description=args.description or args.reasoning or "",
-        importance=args.importance,
+        description=db_description,
         source=args.source,
         prompt=args.prompt,
         buttons=button_labels_for_db,
@@ -778,7 +607,6 @@ def main() -> int:
         source_url=args.source_url,
         chat_id=chat_id(),
         thread_id=args.thread_id,
-        spawn_topic=args.spawn_topic,
     )
 
     body = _build_body(args)

@@ -86,6 +86,24 @@ if command -v npm >/dev/null 2>&1 && ! sudo -iu bux command -v codex >/dev/null 
     || echo "bootstrap: codex install failed (non-fatal — /codex login will hint how to install later)" >&2
 fi
 
+# Enable Codex /goal autopilot feature: `[features] goals = true` in
+# ~/.codex/config.toml. Idempotent — leaves existing config alone if
+# goals=true or a [features] block is already present.
+sudo -u bux -H bash -c '
+CODEX_CONFIG="$HOME/.codex/config.toml"
+mkdir -p "$(dirname "$CODEX_CONFIG")"
+if [ ! -f "$CODEX_CONFIG" ]; then
+  printf "[features]\ngoals = true\n" > "$CODEX_CONFIG"
+elif ! grep -qE "^[[:space:]]*goals[[:space:]]*=" "$CODEX_CONFIG"; then
+  if grep -qE "^[[:space:]]*\[features\]" "$CODEX_CONFIG"; then
+    echo "bootstrap: warn — existing [features] block in $CODEX_CONFIG; add goals = true manually" >&2
+  else
+    printf "\n[features]\ngoals = true\n" >> "$CODEX_CONFIG"
+  fi
+fi
+chmod 0644 "$CODEX_CONFIG"
+' || echo "bootstrap: codex config write failed (non-fatal)" >&2
+
 # --- agent shell helpers --------------------------------------------------
 # install.sh creates these symlinks on first boot, but new helpers added to
 # agent/ after a box has already been provisioned never get linked into
@@ -95,35 +113,35 @@ ln -sfn "$REPO_DIR/agent/tg-send"        /usr/local/bin/tg-send
 ln -sfn "$REPO_DIR/agent/tg-buttons"     /usr/local/bin/tg-buttons
 ln -sfn "$REPO_DIR/agent/tg-schedule"    /usr/local/bin/tg-schedule
 ln -sfn "$REPO_DIR/agent/tg-schedule-fire" /usr/local/bin/tg-schedule-fire
+ln -sfn "$REPO_DIR/agent/new-topic"      /usr/local/bin/new-topic
+ln -sfn /usr/local/bin/tg-schedule       /usr/local/bin/schedule
 ln -sfn "$REPO_DIR/agent/agency-report"  /usr/local/bin/agency-report
 ln -sfn "$REPO_DIR/agent/bux-restart"    /usr/local/bin/bux-restart
 ln -sfn "$REPO_DIR/agent/bux-miniapp-tunnel" /usr/local/bin/bux-miniapp-tunnel
 
-# --- ~/AGENTS.md symlink for codex -----------------------------------------
-# install.sh creates `/home/bux/AGENTS.md → /home/bux/CLAUDE.md` on first
-# boot so codex (which reads AGENTS.md from cwd-and-up) inherits the same
-# system prompt as claude. Boxes provisioned BEFORE that line landed in
-# install.sh end up with no AGENTS.md, leaving codex with no operating
-# manual at runtime. Re-assert here on every update so existing boxes
-# self-heal. Idempotent: -f forces replacement if a stale entry exists,
-# -n keeps it from de-referencing through an existing symlink directory.
-if [ -e /home/bux/CLAUDE.md ]; then
-  ln -sfn /home/bux/CLAUDE.md /home/bux/AGENTS.md
-  chown -h bux:bux /home/bux/AGENTS.md
+# --- system prompt + CLAUDE.md/AGENTS.md symlinks --------------------------
+# The one source of truth is /home/bux/system-prompt.md (copied from the
+# repo by install.sh). Claude Code reads ~/CLAUDE.md, Codex reads ~/AGENTS.md
+# — both symlink to system-prompt.md so editing one file updates both CLIs.
+# Re-assert on every update so boxes provisioned with the older "CLAUDE.md
+# as the file" layout self-heal to the symlink layout.
+if [ -e "$AGENT_DIR/system-prompt.md" ]; then
+  install -o bux -g bux -m 0644 "$AGENT_DIR/system-prompt.md" /home/bux/system-prompt.md
+  # If a real CLAUDE.md file exists (pre-rename layout), replace it with the symlink.
+  if [ -e /home/bux/CLAUDE.md ] && [ ! -L /home/bux/CLAUDE.md ]; then
+    rm -f /home/bux/CLAUDE.md
+  fi
+  ln -sfn /home/bux/system-prompt.md /home/bux/CLAUDE.md
+  ln -sfn /home/bux/system-prompt.md /home/bux/AGENTS.md
+  chown -h bux:bux /home/bux/CLAUDE.md /home/bux/AGENTS.md
 fi
 
-# --- agency skill stub for Claude Code -------------------------------------
-# Claude Code auto-loads skills from ~/.claude/skills/<name>/SKILL.md and
-# surfaces their trigger phrases to the skill picker. The agency skill's
-# canonical doctrine lives in agent/AGENCY.md; agent/agency-skill.md is a
-# thin stub that just owns the trigger phrases ("start agency", "scan
-# everything", etc.) and points back at AGENCY.md. We symlink the stub
-# into place so a `git pull` to a newer AGENCY.md propagates without
-# re-running bootstrap, and so the stub itself stays under version
-# control instead of drifting on-disk per-box.
-install -d -o bux -g bux -m 0755 /home/bux/.claude/skills/agency
-ln -sfn "$AGENT_DIR/agency-skill.md" /home/bux/.claude/skills/agency/SKILL.md
-chown -h bux:bux /home/bux/.claude/skills/agency/SKILL.md
+# --- clean up legacy agency-skill stub -------------------------------------
+# Before v2, agency was triggered by phrases ("start agency", "scan everything")
+# via a Claude Code skill at ~/.claude/skills/agency/SKILL.md. After v2 agency
+# is the default; the skill gate is dead. Remove it so it doesn't keep firing
+# on old boxes after a git pull.
+rm -rf /home/bux/.claude/skills/agency
 
 # Agency DB lives at /var/lib/bux/agency.db (created by agency_db on
 # first use). Make sure the directory is writable by `bux` so any
@@ -197,7 +215,35 @@ else
   if ! sudo -u bux -H bash -c 'cd /home/bux && claude mcp list 2>/dev/null' | grep -q '^composio'; then
     echo "bootstrap: WARN composio MCP registration didn't take" >&2
   else
-    echo "bootstrap: registered cloud Composio MCP server"
+    echo "bootstrap: registered cloud Composio MCP server (claude)"
+  fi
+fi
+
+# Same composio MCP for codex. Codex CLI ≥ 0.30 supports HTTP-transport MCP
+# servers natively (no mcp-remote bridge needed). `codex mcp add` writes to
+# ~/.codex/config.toml. We use --bearer-token-env-var so the token isn't
+# baked into the config file — codex reads BUX_BOX_TOKEN at MCP-connect time.
+# telegram_bot.py:_build_env forwards BUX_BOX_TOKEN to the codex subprocess.
+if [ -z "${BUX_BOX_TOKEN:-}" ]; then
+  echo "bootstrap: BUX_BOX_TOKEN not set; skipping codex Composio MCP registration" >&2
+elif ! sudo -iu bux command -v codex >/dev/null 2>&1; then
+  echo "bootstrap: codex CLI not on PATH; skipping codex Composio MCP registration" >&2
+else
+  # `sudo -iu bux` (login shell) so per-user PATH from ~/.profile picks up
+  # ~/.npm-global/bin where codex actually lives — `-u bux -H` skips that.
+  sudo -iu bux codex mcp remove composio >/dev/null 2>&1 || true
+  # HTTP-transport MCP servers in codex use `--url <URL>`, not `-- <args>`.
+  # The `--` form is for stdio commands. Keep stderr unredirected so any
+  # real failure surfaces in install.log instead of getting swallowed.
+  if ! ( set +x; sudo -iu bux codex mcp add composio \
+        --bearer-token-env-var BUX_BOX_TOKEN \
+        --url https://api.browser-use.com/cloud/composio/mcp >/dev/null ); then
+    echo "bootstrap: WARN failed to register cloud Composio MCP server for codex" >&2
+  fi
+  if ! sudo -iu bux codex mcp list 2>/dev/null | grep -q '^composio'; then
+    echo "bootstrap: WARN codex composio MCP registration didn't take" >&2
+  else
+    echo "bootstrap: registered cloud Composio MCP server (codex)"
   fi
 fi
 
@@ -317,11 +363,15 @@ systemctl enable box-agent.service
 systemctl enable bux-ttyd.service
 systemctl enable bux-browser-keeper.service
 
-# bux-tg / bux-miniapp / bux-miniapp-tunnel stay enabled-but-conditional —
-# only run once /etc/bux/tg.env is written by the agent's tg_install handler.
+# bux-tg is the main UX, enabled-but-conditional on /etc/bux/tg.env.
 systemctl enable bux-tg.service
-systemctl enable bux-miniapp.service
-systemctl enable bux-miniapp-tunnel.service
+
+# bux-miniapp + tunnel are lazy-started by the bot on /miniapp invocation
+# (see _start_miniapp_service in telegram_bot.py). They aren't enabled at
+# boot — they only run if the user opens the Mini App, and the cloudflared
+# tunnel stops when not in use. Disable any prior enables to make this
+# rollout self-healing.
+systemctl disable bux-miniapp.service bux-miniapp-tunnel.service 2>/dev/null || true
 
 # Boot-time pull runs ahead of the others on every reboot.
 systemctl enable bux-boot-update.service
