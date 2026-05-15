@@ -7,20 +7,22 @@ Always:
   3. wires the message_id back into the row so a button tap can record
      the user's decision against the right suggestion.
 
-Default buttons: ✅ Yes · ⏭ Skip · ✏️ Edit
-Default layout: row 1 = [Yes][Skip], row 2 = [Edit].
+Default buttons: ✅ Yes · 🔁 More · ⏭ Skip
+Default layout: row 1 = [Yes][More], row 2 = [Skip].
 
 Each default button has a *kind* the bot uses to pick semantics:
-  • Yes  → kind=action  → bot opens a fresh forum topic, dispatches the
-                          suggestion's --prompt there as a new lane.
-  • Skip → kind=dismiss → bot records the dismissal, posts a 1-line ack,
-                          does NOT call the LLM. (Cheap "saw it, move on".)
-  • Edit → kind=refine  → bot opens a fresh forum topic with the question
-                          "What would you change?" — agent waits for the
-                          user's reply, no immediate LLM dispatch.
+  • Yes  → kind=action  → bot dispatches the suggestion's --prompt in this
+                          topic (the goal's permanent lane). No new forum
+                          topic is spawned — one goal, one topic.
+  • More → kind=more    → bot asks the agent to regenerate this card with
+                          a different angle (different draft, different
+                          framing, different next step). The user is
+                          curious but not sold.
+  • Skip → kind=dismiss → bot records the dismissal, no LLM call.
+                          (Cheap "saw it, move on".)
 
 Callback data shape: `agcy:<thread>:<idx>:<kind>` where kind is one of
-{action, dismiss, refine, custom}. Custom button sets passed via --button
+{action, more, dismiss, custom}. Custom button sets passed via --button
 all get kind=custom (existing dispatch-in-same-topic behavior).
 
 Custom buttons: pass --button (repeatable). Layout wraps in pairs of two.
@@ -41,8 +43,8 @@ of expandable blocks is variable (0, 1, 2, N — your call):
 
   <i>source: <link></i>             ← at the very end, italic, optional.
 
-  [Yes] [Skip]
-  [Edit]
+  [Yes] [More]
+  [Skip]
 
 Blocks are specified one of two ways:
   • Legacy 2-block: --draft (becomes "📝 Drafted action") and --reasoning
@@ -52,27 +54,13 @@ Blocks are specified one of two ways:
     three variants A/B/C, or a single "context" block, or zero blocks
     (--info-only with just headline + source link).
 
-Yes-tap routing — auto-default by thread context:
-  • If the card is posted inside any forum topic, --spawn-topic defaults
-    to OFF — Yes/Edit dispatch in the same goal/topic. The agent may
-    create subtopics later if the work genuinely needs fan-out.
-  • If there is no current forum topic, --spawn-topic defaults to ON so
-    the accepted work gets a lane.
-
-Routing policy:
-  • Default in forum topics: in-place "✅ Yes" for short work.
-  • Use --spawn-topic / "🧵 Yes (new thread)" only for bigger projects:
-    recurring monitors, multi-step investigations, work likely to take
-    >10 tool calls, or anything that will produce multiple follow-ups.
-
-Override the auto-default with:
-  • --spawn-topic    — force spawn (always create a new topic on Yes/Edit)
-  • --no-spawn-topic — force in-place (always run in the current thread)
-
-Default-button labels reflect the chosen routing so the user can tell
-from the button alone whether tapping forks a topic:
-  • spawn:    "🧵 Yes (new thread)" / "⏭ Skip" / "🧵 Edit (new thread)"
-  • in-place: "✅ Yes" / "⏭ Skip" / "✏️ Edit"
+Yes-tap routing — one goal, one topic:
+  • Yes/More dispatch in the topic the card lives in. That topic is the
+    goal's permanent lane. The agent may create sub-topics later only if
+    the work genuinely needs fan-out (rare).
+  • --spawn-topic / --no-spawn-topic flags are kept for back-compat but
+    default to OFF inside topics, ON outside topics. The default-button
+    labels are the same in either case (✅ Yes / 🔁 More / ⏭ Skip).
 
 If --image (URL), --image-file (local path), or --image-text (auto-rendered
 placeholder) is given, the image renders above the body. For bodies that
@@ -141,18 +129,12 @@ sys.path.insert(0, str(REPO_AGENT))
 import agency_db  # noqa: E402
 
 # (label, kind) tuples. Kind drives the bot's callback semantics.
-# Two label variants — picked at post time based on --spawn-topic so
-# the user can tell from the button alone whether tapping will run
-# in-place or fork a new forum topic.
-DEFAULT_BUTTONS_INPLACE: list[tuple[str, str]] = [
+# One canonical set — one goal, one topic, no spawn-topic label variants.
+# `more` asks the agent to regenerate this card with a different angle.
+DEFAULT_BUTTONS: list[tuple[str, str]] = [
     ("✅ Yes", "action"),
+    ("🔁 More", "more"),
     ("⏭ Skip", "dismiss"),
-    ("✏️ Edit", "refine"),
-]
-DEFAULT_BUTTONS_SPAWN: list[tuple[str, str]] = [
-    ("🧵 Yes (new thread)", "action"),
-    ("⏭ Skip", "dismiss"),
-    ("🧵 Edit (new thread)", "refine"),
 ]
 TG_CAPTION_LIMIT = 1024
 
@@ -344,11 +326,11 @@ def _coerce_button_label(raw: str) -> str:
 
 def _resolve_buttons(args: argparse.Namespace) -> list[tuple[str, str]]:
     """Returns list of (label, kind). Custom buttons all get kind='custom'.
-    Default-set labels reflect --spawn-topic so the user can tell from
-    the button alone whether tapping will run here or fork a topic."""
+    Default set is one canonical ✅ Yes / 🔁 More / ⏭ Skip — one goal, one
+    topic, no spawn-topic label variants."""
     if args.button:
         return [(_coerce_button_label(label), "custom") for label in args.button]
-    return list(DEFAULT_BUTTONS_SPAWN if args.spawn_topic else DEFAULT_BUTTONS_INPLACE)
+    return list(DEFAULT_BUTTONS)
 
 
 def _build_keyboard(

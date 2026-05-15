@@ -160,6 +160,7 @@ def _mini_conn() -> sqlite3.Connection:
           title TEXT NOT NULL,
           context TEXT NOT NULL DEFAULT '',
           cadence TEXT NOT NULL DEFAULT '',
+          mode TEXT NOT NULL DEFAULT 'copilot',
           status TEXT NOT NULL DEFAULT 'active',
           tg_chat_id INTEGER,
           tg_thread_id INTEGER,
@@ -202,6 +203,7 @@ def _mini_conn() -> sqlite3.Connection:
     for ddl in (
         "ALTER TABLE goals ADD COLUMN tg_chat_id INTEGER",
         "ALTER TABLE goals ADD COLUMN tg_thread_id INTEGER",
+        "ALTER TABLE goals ADD COLUMN mode TEXT NOT NULL DEFAULT 'copilot'",
     ):
         try:
             db.execute(ddl)

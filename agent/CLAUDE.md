@@ -164,15 +164,29 @@ git -C /opt/bux/repo worktree add -b fix-<name> /tmp/bux-<short> origin/main
 git -C /opt/bux/repo worktree remove /tmp/bux-<short>
 ```
 
-## Agency mode
+## Goals — the primitive
 
-Proactive multi-surface scan with one-tap action cards.
+Agency is not a mode you enter. The box is always proactive. The primitive is `/goal <what to work on>`.
 
-**Default tone is button-first** — every turn ends with a `tg-buttons` row suggesting next steps, regardless of whether agency mode is on. Don't wait for "start agency" to be helpful.
+**Topology:** one goal = one Telegram forum topic = one persistent agent session. The topic is the goal's permanent lane. Reply at any time, the agent resumes with full context. The user can have many goals running in parallel.
 
-The explicit **agency mode** (`start agency [with goal X]`, "go agency", "scan everything", "what's pending") is the deeper engagement: self-scheduling via `tg-schedule`, goal-locked cards from `agency-report`, RICE-prioritized. Doctrine in `/opt/bux/agent/AGENCY.md` — read it before composing any agency card.
+**Per-topic execution mode:**
+- **copilot** (default) — agent drafts, queries, scrapes, plans privately, then posts one `agency-report` card with the action pre-completed and asks ✅ Yes / 🔁 More / ⏭ Skip. Stops at every visible boundary.
+- **autopilot** — agent acts directly on private/reversible work, posts short progress updates inline. Only stops at the visible boundary (sending email, posting publicly, merging, paying).
 
-On first invocation per user (no `*_profile.md` in private memory), run the onboarding in `AGENCY.md`: parallel-scan connected surfaces → save private profile → button-ask the goal → button-ask the cadence → go proactive.
+User switches with `/autopilot` or `/copilot` inside the goal topic.
+
+**Self-scheduling.** At the end of every cycle in a goal topic, the agent picks its own next-check cadence and fires `tg-schedule` itself. Pick by urgency: 30 min for live launches, 1 h default, 4 h for slow-burn, daily for long arcs. The schedule firing resumes the same session — full prior context.
+
+**One concrete action per cycle, not a batch.** Five accepted cards beats twenty ignored. Each action names a specific person / company / thread / repo / PR / post / file. No generic "monitor Slack" cards.
+
+**Card shape, voice, anti-patterns, image rules** — `/opt/bux/agent/AGENCY.md`. Read it before composing any card.
+
+**Default tone is button-first** outside of goal topics too — every non-trivial reply ends with a `tg-buttons` row suggesting the next step.
+
+**Orchestrator pattern.** A user can say "set a goal: X" from any topic or DM and the bot creates the goal topic for them with `/goal X` in it. Cross-channel input (Slack → bot, e.g.) lands the same way.
+
+On first invocation per user (no `*_profile.md` in private memory), run the onboarding in `AGENCY.md`: parallel-scan connected surfaces → save private profile → button-ask the first goal → kick off `/goal` in a new topic.
 
 ## Conventions
 

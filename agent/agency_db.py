@@ -233,7 +233,7 @@ def record_decision(
     low = decision.lower()
     if any(w in low for w in ("yes", "do it", "ship", "send", "merge", "approve")):
         status = "accepted"
-    elif any(w in low for w in ("regen", "redo", "rethink")):
+    elif any(w in low for w in ("more", "regen", "redo", "rethink")):
         status = "regenerated"
     elif any(w in low for w in ("different", "differently", "edit", "refine")):
         status = "differently"

@@ -213,7 +213,18 @@ def _append_private_goal(title: str, context: str = "", cadence: str = "") -> No
         LOG.debug("could not append private goal", exc_info=True)
 
 
-def _record_miniapp_goal(title: str, context: str, cadence: str, chat_id: int, thread_id: int) -> int | None:
+GOAL_MODES = ("copilot", "autopilot")
+DEFAULT_GOAL_MODE = "copilot"
+
+
+def _record_miniapp_goal(
+    title: str,
+    context: str,
+    cadence: str,
+    chat_id: int,
+    thread_id: int,
+    mode: str = DEFAULT_GOAL_MODE,
+) -> int | None:
     try:
         MINIAPP_DB.parent.mkdir(parents=True, exist_ok=True)
         now = int(time.time())
@@ -225,6 +236,7 @@ def _record_miniapp_goal(title: str, context: str, cadence: str, chat_id: int, t
                   title TEXT NOT NULL,
                   context TEXT NOT NULL DEFAULT '',
                   cadence TEXT NOT NULL DEFAULT '',
+                  mode TEXT NOT NULL DEFAULT 'copilot',
                   status TEXT NOT NULL DEFAULT 'active',
                   tg_chat_id INTEGER,
                   tg_thread_id INTEGER,
@@ -233,12 +245,27 @@ def _record_miniapp_goal(title: str, context: str, cadence: str, chat_id: int, t
                 )
                 """
             )
+            # Backfill the `mode` column on DBs created before this schema.
+            try:
+                db.execute("ALTER TABLE goals ADD COLUMN mode TEXT NOT NULL DEFAULT 'copilot'")
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e).lower():
+                    raise
             cur = db.execute(
                 """
-                INSERT INTO goals (title, context, cadence, tg_chat_id, tg_thread_id, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO goals (title, context, cadence, mode, tg_chat_id, tg_thread_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (title, context, cadence, chat_id or None, thread_id or None, now, now),
+                (
+                    title,
+                    context,
+                    cadence,
+                    mode if mode in GOAL_MODES else DEFAULT_GOAL_MODE,
+                    chat_id or None,
+                    thread_id or None,
+                    now,
+                    now,
+                ),
             )
             return int(cur.lastrowid)
     except Exception:
@@ -246,7 +273,57 @@ def _record_miniapp_goal(title: str, context: str, cadence: str, chat_id: int, t
         return None
 
 
-def _agency_goal_prompt(title: str, context: str, cadence: str = "") -> str:
+def _get_goal_mode(chat_id: int, thread_id: int) -> str:
+    """Return the active goal's mode for this (chat, thread). Default: copilot."""
+    if not chat_id or not thread_id:
+        return DEFAULT_GOAL_MODE
+    try:
+        with sqlite3.connect(str(MINIAPP_DB)) as db:
+            cur = db.execute(
+                """
+                SELECT mode FROM goals
+                 WHERE tg_chat_id = ? AND tg_thread_id = ?
+                 ORDER BY id DESC LIMIT 1
+                """,
+                (chat_id, thread_id),
+            )
+            row = cur.fetchone()
+            if row and row[0] in GOAL_MODES:
+                return row[0]
+    except Exception:
+        LOG.debug("could not read goal mode", exc_info=True)
+    return DEFAULT_GOAL_MODE
+
+
+def _set_goal_mode(chat_id: int, thread_id: int, mode: str) -> bool:
+    """Update the latest goal in this (chat, thread). Returns False if no goal row exists."""
+    if mode not in GOAL_MODES or not chat_id or not thread_id:
+        return False
+    try:
+        with sqlite3.connect(str(MINIAPP_DB)) as db:
+            cur = db.execute(
+                """
+                UPDATE goals SET mode = ?, updated_at = ?
+                 WHERE id = (
+                   SELECT id FROM goals
+                    WHERE tg_chat_id = ? AND tg_thread_id = ?
+                    ORDER BY id DESC LIMIT 1
+                 )
+                """,
+                (mode, int(time.time()), chat_id, thread_id),
+            )
+            return cur.rowcount > 0
+    except Exception:
+        LOG.debug("could not set goal mode", exc_info=True)
+        return False
+
+
+def _agency_goal_prompt(
+    title: str,
+    context: str,
+    cadence: str = "",
+    mode: str = DEFAULT_GOAL_MODE,
+) -> str:
     try:
         goals_text = GOALS_FILE.read_text().strip()[:12000]
     except Exception:
@@ -254,25 +331,46 @@ def _agency_goal_prompt(title: str, context: str, cadence: str = "") -> str:
     goals_block = (
         f"\n\nPrivate goals file ({GOALS_FILE}):\n{goals_text}"
         if goals_text
-        else f"\n\nPrivate goals file ({GOALS_FILE}) is empty or missing. First lock the user's high-level goals."
+        else f"\n\nPrivate goals file ({GOALS_FILE}) is empty or missing. Add the goal there once it's locked."
     )
-    cadence_line = f"\nCadence or schedule mentioned by the user: {cadence}" if cadence else ""
+    cadence_line = f"\nCadence the user mentioned: {cadence}" if cadence else ""
+
+    if mode == "autopilot":
+        mode_block = (
+            "Mode: **autopilot**. Act directly on private/reversible work (drafts, scrapes, queries, local files, "
+            "scheduled checks). Post short progress updates in this topic with tg-send. Only stop and ask via "
+            "agency-report when the next step would be visible to other people, irreversible, or spend money: "
+            "sending an email, posting publicly, merging, deploying, paying."
+        )
+    else:
+        mode_block = (
+            "Mode: **copilot**. Do all the private/reversible work yourself (read, draft, query, render), then post "
+            "ONE agency-report card with the action pre-completed and ask Yes/More/Skip. Never ask 'should I draft' — "
+            "draft it, attach it, ask to send."
+        )
+
     return (
-        "Mini App goal created.\n\n"
-        f"Goal: {title}\n\n"
+        f"Goal locked in this Telegram topic: **{title}**\n\n"
         f"User context:\n{context or title}"
         f"{cadence_line}"
         f"{goals_block}\n\n"
-        "Use the Agency skill and /opt/bux/repo/agent/AGENCY.md. "
-        "This is the generator lane for a personal social feed: create cards the user will want to accept. "
-        "Read the goals file and agency.db history first so you do not repeat skipped ideas. "
-        "Do reversible/internal work before posting a card, then ask only at the visible boundary. "
-        "If the user explicitly says to work autonomously, that they are going away, or that no approval is needed, switch to Autopilot: do the private/reversible work directly, post concise progress updates in this topic, and create approval cards only for visible/external side effects. "
-        "Generate 10 high-signal Agency cards for this goal in this same Telegram topic using agency-report. "
-        "Every concrete card must name a specific person, company, thread, repo, PR, incident, signup, page, post, or file. "
-        "If this goal is still too vague, ask one short goal/context question or create high-level goal-lock cards instead of filler. "
-        "Set source_label/source_url to the real platform object; never use the bux GitHub repo URL as a generic source for non-GitHub cards. "
-        "Keep each card short, concrete, visual when useful, and easy to approve from the Mini App."
+        f"{mode_block}\n\n"
+        "How to work this goal:\n"
+        "1. Read /opt/bux/repo/agent/AGENCY.md for card shape, voice, anti-patterns.\n"
+        "2. Read /var/lib/bux/agency.db for what's already been suggested/accepted/skipped on this goal. "
+        "Don't repeat skipped ideas.\n"
+        "3. Scan the connected surfaces you actually have access to (Gmail, Slack, GitHub, etc. via composio MCP, "
+        "or the live browser via browser-harness) for the most concrete next action that moves this goal.\n"
+        "4. Take the next action under your current mode. ONE high-signal thing per cycle, not a batch of ten. "
+        "Every action names a specific person/company/thread/repo/PR/post/file — no generic 'monitor channel' cards.\n"
+        "5. End every cycle by self-scheduling the next check with `tg-schedule`. Pick a cadence that fits the goal: "
+        "30 min for fast-moving (live launches, incidents), 1h default, 4h for slow-burn goals, daily for long arcs. "
+        "Example: `tg-schedule '+1 hour' 'next agency cycle on this goal'`.\n"
+        "6. If the goal is still too vague to act on, ask ONE short clarifying question (use tg-buttons with 2-3 "
+        "options) instead of filler cards.\n"
+        "7. Set agency-report `--source-label` / `--source-url` to the real platform object. Never use the bux "
+        "GitHub repo as a generic source for non-GitHub cards.\n\n"
+        "This topic is the goal's permanent lane. The user can reply at any time and you resume with full context."
     )
 
 # Failure reaction on the user's message. Telegram's free-tier reaction
@@ -341,7 +439,9 @@ BOT_COMMANDS: list[tuple[str, str]] = [
     ("fast", "switch this topic's Codex lane to fast mode"),
     ("model", "show/set this topic's Codex model"),
     ("agency", "open the goal card feed"),
-    ("goal", "create an Agency goal"),
+    ("goal", "create a goal in a new topic — the agent works on it 24/7"),
+    ("autopilot", "this goal: act on reversible work, ask only at visible edges"),
+    ("copilot", "this goal: draft and ask before anything visible (default)"),
     ("miniapp", "open the goal card feed"),
     ("live", "live-view URL of the active browser"),
     ("queue", "pending tasks in this topic"),
@@ -4873,24 +4973,49 @@ class Bot:
             return
         context = title
         goal_thread = thread_id
-        chat_type_hint = "topic"
+        spawned_topic = False
+        topic_error: str | None = None
         if chat_id < 0:
             try:
                 res = self.call("createForumTopic", chat_id=chat_id, name=title[:128])
                 if res.get("ok"):
                     goal_thread = int(res["result"].get("message_thread_id") or thread_id)
                     _record_miniapp_topic(chat_id, goal_thread, title, "telegram-goal")
-                    chat_type_hint = "new topic"
-            except Exception:
+                    spawned_topic = True
+                else:
+                    topic_error = str(res.get("description") or "createForumTopic returned not-ok")
+            except Exception as exc:
                 LOG.exception("goal: createForumTopic failed")
+                topic_error = str(exc)
         _append_private_goal(title, context)
-        goal_id = _record_miniapp_goal(title, context, "", chat_id, goal_thread)
-        prompt = _agency_goal_prompt(title, context)
+        mode = DEFAULT_GOAL_MODE
+        goal_id = _record_miniapp_goal(title, context, "", chat_id, goal_thread, mode=mode)
+        prompt = _agency_goal_prompt(title, context, mode=mode)
+        if topic_error and not spawned_topic:
+            # User asked for /goal in a group but topic creation failed (e.g. the
+            # bot isn't admin / topics aren't enabled). Tell them — running the
+            # goal in-place would silently merge it into the current thread.
+            self.send(
+                chat_id,
+                f"Couldn't create a new topic for this goal: {topic_error}\n\n"
+                "Running it in this thread instead. To get a dedicated lane, "
+                "enable Topics on the group and make me admin (manage_topics).",
+                reply_to=reply_to,
+                thread_id=thread_id,
+                markdown=False,
+            )
+        ack_lines = [
+            f"🎯 Goal locked: {title}",
+            "",
+            "Mode: **copilot** — I draft and ask before anything visible.",
+            "Switch with /autopilot (act on reversible work without asking).",
+        ]
         self.send(
             chat_id,
-            f"Goal created: {title}\n\nAgency is generating cards for it now.",
+            "\n".join(ack_lines),
             reply_to=reply_to,
             thread_id=goal_thread or thread_id,
+            markdown=True,
         )
         try:
             self.run_task(
@@ -4903,12 +5028,15 @@ class Bot:
                     "name": sender.get("name") or "",
                 },
             )
-            LOG.info("goal: started goal_id=%s chat=%s thread=%s via %s", goal_id, chat_id, goal_thread, chat_type_hint)
+            LOG.info(
+                "goal: started goal_id=%s chat=%s thread=%s spawned=%s",
+                goal_id, chat_id, goal_thread, spawned_topic,
+            )
         except Exception:
             LOG.exception("goal: run_task failed")
             self.send(
                 chat_id,
-                "Goal was saved, but I couldn't start the generator turn.",
+                "Goal was saved, but I couldn't start the first cycle. Try `/goal` again or check the logs.",
                 reply_to=reply_to,
                 thread_id=goal_thread or thread_id,
             )
@@ -5505,8 +5633,10 @@ class Bot:
                 "/claude — switch this topic to Claude\n"
                 "/claude login — sign in Claude through a terminal flow\n"
                 "/claude logout — sign out Claude\n"
+                "/goal <what to work on> — start a goal (new topic, agent works on it 24/7)\n"
+                "/autopilot — this goal: act on reversible work, ask only at visible edges\n"
+                "/copilot — this goal: draft and ask before anything visible (default)\n"
                 "/agency — open the Mini App\n"
-                "/goal <goal> — create an Agency goal and generate cards\n"
                 "/miniapp — open the Mini App\n"
                 "/live — live-view URL of the active browser\n"
                 "/queue — pending tasks in this topic\n"
@@ -5534,6 +5664,40 @@ class Bot:
                 )
                 return
             self._start_agency_goal_from_command(chat_id, thread_id, arg, sender, reply_to=mid)
+            return
+        if cmd in ("/autopilot", "/copilot"):
+            if not owner or not _is_owner(sender, owner):
+                self.send(
+                    chat_id,
+                    f"`{cmd}` is owner-only.",
+                    reply_to=mid,
+                    thread_id=thread_id,
+                    markdown=True,
+                )
+                return
+            new_mode = "autopilot" if cmd == "/autopilot" else "copilot"
+            updated = _set_goal_mode(chat_id, thread_id, new_mode)
+            if not updated:
+                self.send(
+                    chat_id,
+                    "No goal in this topic yet. Use `/goal <what to work on>` first.",
+                    reply_to=mid,
+                    thread_id=thread_id,
+                    markdown=True,
+                )
+                return
+            blurb = (
+                "**autopilot** — I act on private/reversible work directly and ping you only at visible boundaries."
+                if new_mode == "autopilot"
+                else "**copilot** — I draft and ask before anything visible to other people."
+            )
+            self.send(
+                chat_id,
+                f"Mode for this goal: {blurb}",
+                reply_to=mid,
+                thread_id=thread_id,
+                markdown=True,
+            )
             return
         if cmd in ("/agency", "/miniapp"):
             if not owner or not _is_owner(sender, owner):
@@ -7351,6 +7515,42 @@ class Bot:
                 )
             except Exception:
                 LOG.exception("agency action dispatch failed")
+        elif kind == "more":
+            # User wants a different angle on the same idea. Build a
+            # regeneration prompt that hands the agent the original card
+            # context and asks for a fresh draft. The agent re-runs the
+            # agency-report with a different --source slug so the new card
+            # doesn't dedupe against the old one.
+            orig_title = sugg_row.get("title") or ""
+            orig_desc = sugg_row.get("description") or ""
+            orig_prompt = sugg_row.get("prompt") or ""
+            orig_source = sugg_row.get("source") or ""
+            more_prompt = (
+                "The user tapped 🔁 More on this agency card. "
+                "Regenerate it with a different angle — different draft, different framing, or a different concrete next step. "
+                "Stay on the same underlying idea; the user wants variety, not a different topic.\n\n"
+                f"Original title: {orig_title}\n"
+                f"Original context: {orig_desc}\n"
+                f"Original prompt: {orig_prompt}\n"
+                f"Original source slug: {orig_source}\n\n"
+                "Post one fresh agency-report card in this same topic with a different --source slug "
+                "(e.g. append `-v2` or describe the new angle) so it doesn't dedupe."
+            )
+            try:
+                self.run_task(
+                    (chat_id, work_thread),
+                    more_prompt,
+                    reply_to=None,
+                    sender={
+                        "user_id": str(sender.get("id") or ""),
+                        "username": sender.get("username") or "",
+                        "name": (sender.get("first_name") or "") + (
+                            (" " + sender["last_name"]) if sender.get("last_name") else ""
+                        ),
+                    },
+                )
+            except Exception:
+                LOG.exception("agency more dispatch failed")
         elif kind == "refine":
             # Show the full card context as visible messages so the user
             # can see what they're refining. The plain-text twin used to
