@@ -20,6 +20,12 @@ Three minutes from a blank VPS to *"hey claude, check my email and summarize the
 
 [Watch the 14-second Browser Use Box demo on TikTok](https://www.tiktok.com/@browser_use/video/7639824093721758989).
 
+More launch links:
+
+- [Public demo release](https://github.com/browser-use/bux/releases/tag/box-demo-2026-05-14)
+- [Pinned announcement discussion](https://github.com/browser-use/bux/discussions/181)
+- [Browser Use Box wiki](https://github.com/browser-use/bux/wiki)
+
 ## Setup prompt
 
 Paste into Claude Code (on your laptop) and it will set up your VPS for you:
