@@ -269,7 +269,7 @@ BOT_COMMANDS: list[tuple[str, str]] = [
     ("fast", "switch this topic's Codex lane to fast mode"),
     ("model", "show/set this topic's Codex model"),
     ("agency", "open the goal card feed"),
-    ("goal", "continuous goal — I keep working across turns, posting cards. Add 'don't ask me' or 'just do it' for autopilot."),
+    ("goal", "continuous goal — I keep working across turns, posting cards. Add 'autopilot' or 'no approvals' for full autonomy."),
     ("miniapp", "open the goal card feed"),
     ("live", "live-view URL of the active browser"),
     ("queue", "pending tasks in this topic"),
@@ -277,7 +277,6 @@ BOT_COMMANDS: list[tuple[str, str]] = [
     ("schedules", "list reminders / cron jobs"),
     ("login", "auth status / connect a service (github/claude/codex)"),
     ("logout", "disconnect a service (e.g. /logout gh)"),
-    ("invite", "mint a token to authorize a second chat"),
     ("whoami", "your TG identity + this lane's agent"),
     ("version", "show the bux agent version"),
     ("update", "pull latest code + restart"),
@@ -5081,7 +5080,7 @@ class Bot:
                 "/claude — switch this topic to Claude\n"
                 "/claude login — sign in Claude through a terminal flow\n"
                 "/claude logout — sign out Claude\n"
-                "/goal <what to work on> — continuous goal-mode, copilot by default (I suggest, you accept). Append 'don't ask me' / 'just do it' / 'no approvals' for autopilot.\n"
+                "/goal <what to work on> — continuous goal-mode, copilot by default (I suggest, you accept). Append 'autopilot' / 'full autonomy' / 'no approvals' for full autonomy.\n"
                 "/agency — open the Mini App\n"
                 "/miniapp — open the Mini App\n"
                 "/live — live-view URL of the active browser\n"

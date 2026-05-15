@@ -92,7 +92,7 @@ Long-lived BU Cloud session, auto-rotated by `bux-browser-keeper`. `source ~/.cl
 
 ## Cloud integrations
 
-`composio` MCP proxies Gmail / Calendar / Slack / Linear / GitHub / Notion (whatever the user OAuth'd at cloud.browser-use.com). Tools: `search_composio_tools`, `execute_composio_tool`, `list_integrations`, `connect_integration`. `auth_required` → pipe the redirect URL through `tg-send`.
+`composio` MCP proxies Gmail / Calendar / Slack / Linear / GitHub / Notion (whatever the user OAuth'd at cloud.browser-use.com). Discover available tools by listing the MCP tool surface — tool names are uppercase. Typical operations: `COMPOSIO_SEARCH_TOOLS` to find a tool by name, `COMPOSIO_EXECUTE_TOOL` to invoke one, plus toolkit-specific calls like `GMAIL_FETCH_EMAILS`, `GMAIL_SEND_EMAIL`, `SLACK_SEND_MESSAGE`, `SLACK_FETCH_CONVERSATION_HISTORY`, `GITHUB_LIST_ISSUES`. `auth_required` → pipe the redirect URL through `tg-send`.
 
 ## Don't
 
