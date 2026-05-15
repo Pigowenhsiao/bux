@@ -25,6 +25,7 @@ More launch links:
 - [Public demo release](https://github.com/browser-use/bux/releases/tag/box-demo-2026-05-14)
 - [Pinned announcement discussion](https://github.com/browser-use/bux/discussions/181)
 - [Browser Use Box wiki](https://github.com/browser-use/bux/wiki)
+- [Launch page](https://browser-use.github.io/bux/)
 
 ## Setup prompt
 
