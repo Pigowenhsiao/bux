@@ -15,30 +15,30 @@ if (params.get("dev") === "1") localStorage.buxMiniAppDev = "1";
 const initData = tg?.initData || (localStorage.buxMiniAppDev === "1" ? "dev" : "");
 const app = document.querySelector("#app");
 const toastEl = document.querySelector("#toast");
-const STORE_KEY = "buxMiniAppConceptLab:v6";
+const STORE_KEY = "buxMiniAppConceptLab:v7";
 const CONCEPT_COUNT = 20;
 
 const CONCEPTS = [
-  ["scroll-reel", "Scroll Reel", "reel", "TikTok-style card loop: text below media, buttons below text, no overlays."],
-  ["x-feed", "X Feed", "timeline", "A social feed for quick scanning many agent suggestions."],
-  ["story-stack", "Story Stack", "stories", "Tap-card previews with one full card in focus."],
-  ["swipe-deck", "Swipe Deck", "deck", "Tinder-style decision stack with the action dock outside the card."],
-  ["pin-board", "Pin Board", "board", "A fast visual board for comparing many cards at once."],
-  ["wallet-pass", "Wallet Pass", "wallet", "Stacked passes with clear title, source, and approval controls."],
-  ["chat-cards", "Big Chat Cards", "chat", "The v7 direction: big card heading, small explanation, chat-like flow."],
-  ["goal-lanes", "Goal Lanes", "kanban", "Grouped cards for seeing which goals have open agent work."],
-  ["mail-triage", "Mail Triage", "mail", "The v9 direction: clean list preview plus one readable detail card."],
-  ["command-center", "Command Center", "command", "Stats and a concrete queue without turning into a chatbot."],
-  ["magazine-card", "Magazine Card", "magazine", "Editorial card treatment with copy and controls separated."],
-  ["photo-grid", "Photo Grid", "gallery", "Thumbnail overview with a selected action card below."],
-  ["checklist", "Checklist", "checklist", "A simple list for clearing cards quickly."],
-  ["calendar-stack", "Calendar Stack", "calendar", "Cards arranged like a day plan with one-tap decisions."],
-  ["slot-picker", "Slot Picker", "arcade", "A playful picker for spinning through possible agent actions."],
-  ["split-brief", "Split Brief", "split", "Separate evidence/context from the final decision controls."],
-  ["paper-stack", "Paper Stack", "stack", "Physical cards with strong hierarchy and no media text."],
-  ["voice-card", "Voice Card", "voice", "Optimized for quick spoken feedback on a suggested action."],
-  ["dense-queue", "Dense Queue", "compact", "Compact operator list for rapidly clearing many cards."],
-  ["coach-card", "Coach Card", "coach", "A decision coach card with why, evidence, and a clear next move."],
+  ["clean-scroll", "Clean Scroll", "reel", "The base vertical feed: full media visible, text separate, buttons below."],
+  ["midnight-scroll", "Midnight Scroll", "reel", "Dark, high-contrast reel for image-heavy cards."],
+  ["paper-scroll", "Paper Scroll", "reel", "Warm editorial cards with quieter controls."],
+  ["neon-scroll", "Neon Scroll", "reel", "Sharper color and stronger action hierarchy."],
+  ["overview-scroll", "Overview First", "overview", "Title overview first, then tap into the same full scroll card."],
+  ["compact-scroll", "Compact Scroll", "reel", "Less chrome, more cards per minute."],
+  ["big-chat-scroll", "Big Chat Scroll", "reel", "The v7 direction: big heading, small explanation, readable actions."],
+  ["mail-scroll", "Mail Scroll", "reel", "The v9 direction translated into one-card vertical scrolling."],
+  ["glass-scroll", "Glass Scroll", "reel", "Soft translucent cards over a calm background."],
+  ["command-scroll", "Command Scroll", "reel", "Operator-style cards with strong status labels."],
+  ["poster-scroll", "Poster Scroll", "reel", "For real generated posters: preserve the full image, never crop text."],
+  ["minimal-scroll", "Minimal Scroll", "reel", "Almost no visual noise, optimized for trust and legibility."],
+  ["stack-scroll", "Stack Scroll", "reel", "Physical card feeling without breaking the scroll model."],
+  ["focus-scroll", "Focus Scroll", "reel", "One clear recommendation at a time with generous whitespace."],
+  ["arcade-scroll", "Arcade Scroll", "reel", "Playful colors while keeping the same safe approval contract."],
+  ["mono-scroll", "Mono Scroll", "reel", "Technical black-and-white version for dense work cards."],
+  ["sunrise-scroll", "Sunrise Scroll", "reel", "Bright daily-brief treatment for morning cards."],
+  ["split-scroll", "Split Scroll", "reel", "Image and explanation stay separated, tuned for media cards."],
+  ["dense-scroll", "Dense Scroll", "reel", "Tighter feed for rapid triage without losing button readability."],
+  ["premium-scroll", "Premium Scroll", "reel", "Polished concierge treatment with the same vertical interaction."],
 ].map(([slug, name, layout, line], index) => ({
   id: index + 1,
   slug,
@@ -398,8 +398,8 @@ function renderHub() {
   return `
     <section class="hub-hero">
       <p class="eyebrow">bux concept lab</p>
-      <h1>20 Mini App directions.</h1>
-      <p>Twenty tested interaction models for accepting, skipping, expanding, and improving agent work.</p>
+      <h1>20 Scroll Reel variations.</h1>
+      <p>One core interaction: vertical cards with real media preserved, readable text, and approval buttons below.</p>
       <div class="hub-stats">
         <span>${state.cards.length} cards loaded</span>
         <span>${Object.keys(groupByCategory()).length} source groups</span>
@@ -444,7 +444,6 @@ function renderConcept(concept) {
         <h1>${escapeHtml(concept.name)}</h1>
         <p>${escapeHtml(concept.line)}</p>
       </header>
-      ${renderPreviewStrip(ordered, card)}
       ${renderer(concept, ordered, card)}
     </section>
   `;
@@ -470,6 +469,7 @@ function renderPreviewStrip(cards, card) {
 
 const LAYOUTS = {
   reel: renderReel,
+  overview: renderOverviewReel,
   timeline: renderTimeline,
   stories: renderStories,
   deck: renderDeck,
@@ -525,7 +525,7 @@ function renderReel(concept, cards) {
   return `
     <div class="reel-stream">
       ${cards.slice(0, 5).map((card) => `
-        <article class="phone-reel ${hasRealVisual(card) ? "" : "no-visual-card"} concept-card" data-card-id="${card.id}">
+        <article class="phone-reel ${hasRealVisual(card) ? "has-media-card" : "no-visual-card"} concept-card" data-card-id="${card.id}">
           ${renderVisual(card, "reel-visual")}
           <div class="reel-copy">
             ${renderMeta(card)}
@@ -535,6 +535,34 @@ function renderReel(concept, cards) {
           ${renderActions(card)}
         </article>
       `).join("")}
+    </div>
+  `;
+}
+
+function renderOverviewReel(concept, cards, card) {
+  const selected = focusedCard(cards);
+  return `
+    <div class="overview-reel">
+      <section class="overview-list" aria-label="Open cards">
+        ${cards.slice(0, 10).map((item, index) => `
+          <button class="${String(item.id) === String(selected.id) ? "active" : ""}" data-action="focus" data-card-id="${item.id}" type="button">
+            <span>${index + 1}</span>
+            <strong>${escapeHtml(clip(item.title, 64))}</strong>
+            <small>${escapeHtml(sourceName(item))}</small>
+          </button>
+        `).join("")}
+      </section>
+      <div class="reel-stream overview-detail">
+        <article class="phone-reel ${hasRealVisual(selected) ? "has-media-card" : "no-visual-card"} concept-card" data-card-id="${selected.id}">
+          ${renderVisual(selected, "reel-visual")}
+          <div class="reel-copy">
+            ${renderMeta(selected)}
+            <h2>${escapeHtml(clip(selected.title, 82))}</h2>
+            <p>${escapeHtml(clip(selected.why, 150))}</p>
+          </div>
+          ${renderActions(selected)}
+        </article>
+      </div>
     </div>
   `;
 }
@@ -1218,10 +1246,10 @@ function renderVisual(card, extra = "") {
   const meta = categoryMeta(card);
   const visual = card.visual || {};
   if (visual.kind === "video" && visual.src) {
-    return `<figure class="visual-box ${extra}"><video src="${escapeAttr(visual.src)}" autoplay loop muted playsinline></video></figure>`;
+    return `<figure class="visual-box has-media ${extra}"><video src="${escapeAttr(visual.src)}" autoplay loop muted playsinline></video></figure>`;
   }
   if (visual.kind === "image" && visual.src) {
-    return `<figure class="visual-box ${extra}"><img src="${escapeAttr(visual.src)}" alt="" loading="lazy" /></figure>`;
+    return `<figure class="visual-box has-media ${extra}"><img src="${escapeAttr(visual.src)}" alt="" loading="lazy" /></figure>`;
   }
   return `
     <figure class="visual-box visual-art no-media ${extra}" style="--card-accent:${meta.color}">
