@@ -28,7 +28,7 @@ from typing import Any
 
 REPO_AGENT = Path(__file__).resolve().parent
 STATIC_DIR = REPO_AGENT / "mini_app_static"
-CONCEPT_ROUTE_RE = re.compile(r"^/(?:mini-apps?|miniapps?|mini_app|mini[-_]?app[-/]?(?:[1-9]|10))/?$")
+CONCEPT_ROUTE_RE = re.compile(r"^/(?:mini-apps?|miniapps?|mini_app|mini[-_]?app[-/]?(?:[1-9]|[1-4][0-9]|50))/?$")
 TG_ENV = Path("/etc/bux/tg.env")
 TG_STATE = Path("/etc/bux/tg-state.json")
 TG_ALLOWED = Path("/etc/bux/tg-allowed.txt")
@@ -821,7 +821,6 @@ STARTER_ACCEPTANCE_SUFFIX = (
 
 def _starter_image_url(text: str) -> str:
     raw = str(text or "BUX\ncard").strip() or "BUX\ncard"
-    lines = [line.strip() for line in raw.splitlines() if line.strip()][:3] or ["BUX", "card"]
     digest = hashlib.sha256(raw.encode()).digest()
     palettes = [
         ("#ff4d6d", "#ffd166", "#171321"),
@@ -835,15 +834,6 @@ def _starter_image_url(text: str) -> str:
     ]
     c1, c2, ink = palettes[digest[0] % len(palettes)]
     angle = 25 + digest[1] % 45
-    safe_lines = [html.escape(line[:24]) for line in lines]
-    text_nodes = []
-    for index, line in enumerate(safe_lines):
-        size = 118 if index == 0 else 72
-        y = 560 + index * 108
-        text_nodes.append(
-            f'<text x="64" y="{y}" font-family="Arial Black, Arial, sans-serif" '
-            f'font-size="{size}" font-weight="900" letter-spacing="-4" fill="{ink}">{line}</text>'
-        )
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200">'
         "<defs>"
@@ -859,9 +849,7 @@ def _starter_image_url(text: str) -> str:
         f'<circle cx="{120 + digest[2]}" cy="{180 + digest[3]}" r="{190 + digest[4] % 110}" fill="{ink}" opacity=".12"/>'
         f'<circle cx="{570 + digest[5]}" cy="{760 + digest[6]}" r="{230 + digest[7] % 120}" fill="#fff" opacity=".20"/>'
         f'<path d="M540 170c140 78 226 190 258 340-92-46-184-64-276-54-48-106-42-204 18-286z" fill="{ink}" opacity=".12"/>'
-        f'<text x="64" y="142" font-family="Arial, sans-serif" font-size="36" font-weight="900" letter-spacing="8" fill="{ink}" opacity=".62">BUX ACTION</text>'
-        + "".join(text_nodes)
-        + f'<text x="68" y="1088" font-family="Arial, sans-serif" font-size="32" font-weight="800" fill="{ink}" opacity=".72">tap, skip, remix, automate</text>'
+        f'<path d="M86 842c114-160 258-246 432-260 126-10 226 22 300 96v294H86z" fill="{ink}" opacity=".10"/>'
         "</svg>"
     )
     return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
@@ -885,7 +873,6 @@ def _ensure_starter_cards() -> None:
                 prompt=str(idea["prompt"]) + STARTER_ACCEPTANCE_SUFFIX,
                 buttons=list(idea.get("buttons") or ["Start this"]),
                 blocks=list(idea.get("blocks") or []),
-                image_url=_starter_image_url(str(idea.get("image_text") or idea["title"])),
                 chat_id=chat_id,
                 thread_id=0,
                 spawn_topic=False,
@@ -1222,8 +1209,8 @@ def _goal_agent_prompt(
         "Post them as Agency cards in this same Telegram topic using the normal agency-report/agency-card flow "
         "so they appear in the Mini App feed for this topic. "
         "Set source_label/source_url to the real platform object; never use https://github.com/browser-use/bux as a generic source for non-GitHub cards. "
-        "Keep each card short, concrete, and easy to swipe. For Mini App visuals, prefer portrait 9:16 image_url/image_file assets with a recognizable subject and little or no burned-in text; the card title, description, buttons, and blocks provide the text overlay. "
-        "If there is no genuinely useful visual, leave image_url/image_file empty so the Mini App can render a clean generated poster. "
+        "Keep each card short, concrete, and easy to swipe. For Mini App visuals, prefer portrait 9:16 image_url/image_file assets with a recognizable subject and no embedded title/caption/button text; the card title, description, buttons, and blocks are rendered separately by the Mini App. "
+        "If there is no genuinely useful visual, leave image_url/image_file empty so the Mini App can render a clean text-first card. "
         "Use blocks for expandable context, drafts, variants, or message options; use buttons for the actual one-tap choices, and assume long button labels must still be readable on a phone. "
         "If the user mentioned a schedule, set up or propose the recurring monitoring cadence instead of treating it as a one-off."
     )
@@ -1310,8 +1297,8 @@ def _topic_generate_prompt(thread_id: int, title: str) -> str:
         "Treat this topic as a generator lane. Read the private goals and the existing card history, learn from skipped/accepted decisions, and avoid duplicates. "
         "Do not generate generic channel/workflow ideas. Each card must name a specific person, company, thread, repo, PR, incident, signup, page, post, or file and explain why it moves the topic goal. "
         "Set source_label/source_url to the real platform object; never use the bux GitHub repo URL as a generic source for non-GitHub cards. "
-        "For Mini App visuals, prefer portrait 9:16 image_url/image_file assets with a clear subject and little or no embedded text; title, description, buttons, and blocks are the readable text layer. "
-        "If no good image exists, omit image_url/image_file and rely on the generated poster. Put draft messages, alternatives, and supporting context in expandable blocks, not in the title. "
+        "For Mini App visuals, prefer portrait 9:16 image_url/image_file assets with a clear subject and no embedded title/caption/button text; title, description, buttons, and blocks are the readable text layer. "
+        "If no good image exists, omit image_url/image_file and rely on the clean text-first card. Put draft messages, alternatives, and supporting context in expandable blocks, not in the title or image. "
         "If the topic goal is unclear, generate high-level goal-lock cards or ask one short clarifying goal question instead of posting filler. "
         "Generate 10 more high-signal cards in this same Telegram topic through the normal agency-report/agency-card flow "
         "so they appear in the Mini App feed for this topic."

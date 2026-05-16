@@ -117,8 +117,7 @@ class MiniAppTest(unittest.TestCase):
         self.assertTrue(starter_cards[0]["buttons"])
         self.assertGreater(len(starter_cards[0]["buttons"]), 1)
         self.assertTrue(starter_cards[0]["blocks"])
-        self.assertEqual(starter_cards[0]["visual"]["kind"], "image")
-        self.assertTrue(starter_cards[0]["visual"]["src"].startswith("data:image/svg+xml;base64,"))
+        self.assertEqual(starter_cards[0]["visual"]["kind"], "none")
         self.assertTrue(all(len(card["buttons"]) >= 2 for card in starter_cards))
         self.assertTrue(all(card["source_label"] == "Starter goal" for card in starter_cards))
 
@@ -211,13 +210,13 @@ class MiniAppTest(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
-    def test_concept_routes_serve_all_ten_prototype_shells(self) -> None:
+    def test_concept_routes_serve_all_fifty_prototype_shells(self) -> None:
         server = ThreadingHTTPServer(("127.0.0.1", 0), self.app.MiniAppHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         base = f"http://127.0.0.1:{server.server_port}"
         try:
-            for route in ["/miniapp", "/mini-apps", "/mini-app-1", "/mini-app-10", "/miniapp/7"]:
+            for route in ["/miniapp", "/mini-apps", "/mini-app-1", "/mini-app-10", "/mini-app-50", "/miniapp/37"]:
                 with urllib.request.urlopen(base + route, timeout=5) as res:
                     body = res.read().decode()
                     content_type = res.headers.get("Content-Type", "")

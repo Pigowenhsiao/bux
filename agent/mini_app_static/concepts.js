@@ -3,9 +3,9 @@ tg?.ready();
 tg?.expand();
 
 try {
-  tg?.setHeaderColor?.("#050507");
-  tg?.setBackgroundColor?.("#050507");
-  tg?.setBottomBarColor?.("#050507");
+  tg?.setHeaderColor?.("#f6f1e8");
+  tg?.setBackgroundColor?.("#f6f1e8");
+  tg?.setBottomBarColor?.("#f6f1e8");
 } catch {
   // Telegram client capabilities vary by version.
 }
@@ -15,80 +15,68 @@ if (params.get("dev") === "1") localStorage.buxMiniAppDev = "1";
 const initData = tg?.initData || (localStorage.buxMiniAppDev === "1" ? "dev" : "");
 const app = document.querySelector("#app");
 const toastEl = document.querySelector("#toast");
-const STORE_KEY = "buxMiniAppConceptLab:v4";
+const STORE_KEY = "buxMiniAppConceptLab:v5";
+const CONCEPT_COUNT = 50;
 
 const CONCEPTS = [
-  {
-    id: 1,
-    slug: "clean",
-    name: "Clean Reel",
-    score: "best base",
-    line: "TikTok-style vertical cards with media first, copy separated, and large buttons.",
-  },
-  {
-    id: 2,
-    slug: "image",
-    name: "Image Tap",
-    score: "media first",
-    line: "Tap the image to hide all explanation. Tap again when you want the decision layer.",
-  },
-  {
-    id: 3,
-    slug: "dock",
-    name: "Button Dock",
-    score: "long labels",
-    line: "Persistent center buttons for real generated labels like Send draft A or Monitor every 30 min.",
-  },
-  {
-    id: 4,
-    slug: "drafts",
-    name: "Draft Swipe",
-    score: "variants",
-    line: "Swipe sideways inside a card for summary, context, drafts, and feedback while buttons stay visible.",
-  },
-  {
-    id: 5,
-    slug: "stories",
-    name: "Story Reel",
-    score: "click through",
-    line: "A social story lane with category rings and the same fast vertical card loop.",
-  },
-  {
-    id: 6,
-    slug: "xp",
-    name: "XP Reel",
-    score: "gamified",
-    line: "Accepting useful work earns momentum points and keeps the feed playful without hiding the task.",
-  },
-  {
-    id: 7,
-    slug: "map",
-    name: "Goal Map",
-    score: "overview",
-    line: "A compact goal-sector map explains what is open before you dive into the reel.",
-  },
-  {
-    id: 8,
-    slug: "zero",
-    name: "Inbox Zero",
-    score: "fast clearing",
-    line: "A stricter approve/skip loop for clearing many cards with one-thumb controls.",
-  },
-  {
-    id: 9,
-    slug: "poster",
-    name: "No Image Reel",
-    score: "fallback",
-    line: "Shows how the feed behaves when the agent has no image at all: clean generated posters.",
-  },
-  {
-    id: 10,
-    slug: "ops",
-    name: "Agent OS Reel",
-    score: "control",
-    line: "The same reel wrapped in goal, permission, and cadence controls instead of a chatbot.",
-  },
-];
+  ["image-reel", "TikTok Clean", "reel", "Image first, no title burned into the media, decisions below the image."],
+  ["x-feed", "X Timeline", "timeline", "A social feed: avatar, source, media, reply-style actions, no poster overlay."],
+  ["story-stack", "Story Cards", "stories", "Tap through full-screen story cards with captions in a separate tray."],
+  ["swipe-deck", "Swipe Deck", "deck", "Tinder-style decision stack with one big primary action and quick rejects."],
+  ["pin-board", "Pinterest Board", "board", "A visual idea board for quickly scanning many agent suggestions."],
+  ["wallet-pass", "Wallet Passes", "wallet", "Each card becomes a pass with clear source, benefit, and one large button."],
+  ["chat-agent", "Agent Chat", "chat", "A chat-like mini app, but the answer cards stay tappable and structured."],
+  ["kanban-lanes", "Kanban Lanes", "kanban", "Cards grouped into goal lanes, useful for comparing open work."],
+  ["email-client", "Mail Triage", "mail", "Looks like an inbox with a clean reading pane and big reply actions."],
+  ["command-center", "Command Center", "command", "Dashboard stats plus a concrete action queue, not a chatbot."],
+  ["magazine-cover", "Magazine Cover", "magazine", "Editorial cover card with image and action story separated."],
+  ["photo-grid", "Photo Grid", "gallery", "Instagram-like visual grid with a selected card below."],
+  ["daily-checklist", "Daily Checklist", "checklist", "A simple task list for users who want to clear cards fast."],
+  ["calendar-day", "Calendar Day", "calendar", "Cards placed into a day timeline with prep and follow-up slots."],
+  ["slot-picker", "Slot Picker", "arcade", "A real slot-machine metaphor for spinning to the next concrete idea."],
+  ["split-screen", "Split Screen", "split", "Big media panel, separate written brief, buttons locked to the bottom."],
+  ["paper-stack", "Paper Stack", "stack", "Physical paper cards with strong hierarchy and no media background text."],
+  ["voice-feed", "Voice Feed", "voice", "Optimized for spoken feedback and listening through agent proposals."],
+  ["dense-queue", "Dense Queue", "compact", "A compact operator list for clearing twenty cards without drama."],
+  ["metric-table", "Metric Table", "table", "Cards as rows with impact, source, and action columns."],
+  ["coach-card", "Coach Card", "coach", "The agent acts like a decision coach with next move, risk, and evidence."],
+  ["notion-doc", "Notion Doc", "doc", "A calm workspace page with blocks, references, and buttons at the end."],
+  ["reddit-feed", "Reddit Feed", "forum", "Discussion-card layout for context-heavy suggestions and comments."],
+  ["linear-list", "Linear List", "linear", "Issue-tracker style with priority, status, owner, and action."],
+  ["spotify-queue", "Spotify Queue", "playlist", "Cards become a queue with cover art and one-tap play/start."],
+  ["duo-quest", "Quest Ladder", "quest", "Gamified ladder for earning momentum through small accepted actions."],
+  ["shopping-shelf", "Action Shop", "shop", "A product shelf where each card is something the agent can do for you."],
+  ["news-brief", "News Brief", "brief", "Morning-news style brief with headline, why it matters, and action."],
+  ["focus-mode", "Focus Mode", "focus", "One quiet card, huge whitespace, no visual noise, built for trust."],
+  ["broadcast", "Broadcast Desk", "broadcast", "Cards as dispatches the user can approve, edit, or hold."],
+  ["customer-crm", "Customer CRM", "crm", "Pipeline layout for customer risks, leads, and follow-ups."],
+  ["terminal-panel", "Terminal Panel", "terminal", "Operator console for technical users, with natural-language buttons."],
+  ["comic-strip", "Comic Strip", "comic", "Three-panel narrative: problem, agent work, user decision."],
+  ["roadmap", "Roadmap", "roadmap", "Goal sectors as a roadmap, not a radar: clear lanes and named cards."],
+  ["habit-loop", "Habit Loop", "habit", "Recurring-agent cards with cadence, streak, and next fire time."],
+  ["marketplace", "Agent Store", "market", "Suggestions feel like installable mini skills with previews."],
+  ["one-button", "One Button", "onebutton", "Ultra-simple: one card, one giant accept button, optional details."],
+  ["draft-studio", "Draft Studio", "draft", "Best for cards with multiple draft messages or reply variants."],
+  ["team-room", "Team Room", "team", "People-first view for who needs the user and who can be unblocked."],
+  ["mapless-goals", "Goal Shelves", "shelves", "A category overview without radar: shelves with labeled cards."],
+  ["receipt", "Receipt", "receipt", "A literal receipt of what the agent checked and what it wants to do."],
+  ["auction", "Auction", "auction", "Cards compete for attention with value, urgency, and cost."],
+  ["launch-board", "Launch Board", "launch", "Launch-specific layout for copy, assets, reactions, and follow-ups."],
+  ["calm-letter", "Calm Letter", "letter", "A beautiful letter-style proposal with explicit approval actions."],
+  ["mission-control", "Mission Control", "mission", "Space-command metaphor with status, telemetry, and action queue."],
+  ["sports-card", "Sports Card", "sports", "Collectible cards for opportunities, with stats and moves."],
+  ["receipt-feed", "Proof Feed", "proof", "Shows evidence first, then the agent's proposed action."],
+  ["split-deck", "Split Deck", "splitdeck", "Left-right comparison between two possible actions."],
+  ["tile-os", "Tile OS", "tiles", "Home-screen tiles for agent work, good for quick scanning."],
+  ["concierge", "Concierge", "concierge", "Premium assistant desk: request, context, confirmation."],
+].map(([slug, name, layout, line], index) => ({
+  id: index + 1,
+  slug,
+  name,
+  layout,
+  line,
+  accent: palette(index),
+}));
 
 const DEMO_CARDS = [
   {
@@ -100,27 +88,25 @@ const DEMO_CARDS = [
     importance: "high",
     buttons: ["Draft all replies", "Show only VIPs", "Monitor every 30 min"],
     blocks: [
-      { title: "Draft all replies", body: "Find unanswered threads, draft short replies, and ask before sending." },
-      { title: "Show only VIPs", body: "Filter for investors, customers, teammates, and named high-value contacts." },
-      { title: "Monitor every 30 min", body: "Create a quiet inbox loop that only interrupts for concrete decisions." },
+      { title: "What the agent checks", body: "Unanswered threads, VIP senders, and anything with a clear ask." },
+      { title: "Draft variants", body: "Short reply, warmer reply, and direct next-step reply." },
+      { title: "Safety", body: "Nothing sends without approval." },
     ],
-    image_text: "GMAIL\n3 replies",
     category: "inbox",
   },
   {
     id: "demo-slack",
     title: "Find who is blocked on you in Slack",
-    why: "The agent can scan mentions, DMs, and hot channels, then produce a tiny unblock list.",
+    why: "Scan mentions, DMs, and hot channels, then produce a tiny unblock list.",
     source: "miniapp-demo:slack",
     source_label: "Slack",
     importance: "high",
     buttons: ["Find blockers", "Draft answers", "Daily digest"],
     blocks: [
-      { title: "Find blockers", body: "Name the person, channel, and exact ask before creating a card." },
-      { title: "Draft answers", body: "Prepare concise replies for review instead of sending anything visible." },
-      { title: "Daily digest", body: "Schedule a short Slack brief that ignores noisy chatter." },
+      { title: "Signals", body: "Direct asks, repeated pings, deadlines, and names attached to blockers." },
+      { title: "Output", body: "A short list of people, channel, exact ask, and proposed reply." },
+      { title: "Cadence", body: "Optional daily digest instead of constant pings." },
     ],
-    image_text: "SLACK\nunblock",
     category: "people",
   },
   {
@@ -134,25 +120,23 @@ const DEMO_CARDS = [
     blocks: [
       { title: "Watch CI", body: "Track checks and only interrupt for failures or merge readiness." },
       { title: "Review diff", body: "Summarize risky files, missing tests, and likely regressions." },
-      { title: "Tell me when green", body: "Send one card when the branch is safe to merge." },
+      { title: "When green", body: "Send one card when the branch is safe to merge." },
     ],
-    image_text: "GITHUB\nship",
     category: "code",
   },
   {
     id: "demo-growth",
     title: "Find five warm distribution openings",
-    why: "The feed should discover real people, posts, launches, and replies worth acting on.",
+    why: "Discover real people, posts, launches, and replies worth acting on.",
     source: "miniapp-demo:growth",
     source_label: "Growth",
     importance: "high",
     buttons: ["Find openings", "Draft outreach", "Make launch list"],
     blocks: [
-      { title: "Find openings", body: "Search connected context for named people and channels with active intent." },
-      { title: "Draft outreach", body: "Prepare short variants that feel specific, not generic." },
-      { title: "Make launch list", body: "Build the next ten places worth posting or following up." },
+      { title: "Good opening", body: "A named person or channel with active intent, not generic outreach." },
+      { title: "Draft style", body: "Short, specific, and tied to the visible context." },
+      { title: "Next batch", body: "Create ten more only after learning from taps and skips." },
     ],
-    image_text: "GROWTH\nopenings",
     category: "growth",
   },
   {
@@ -164,11 +148,10 @@ const DEMO_CARDS = [
     importance: "high",
     buttons: ["Start radar", "Find churn risk", "Draft save plan"],
     blocks: [
-      { title: "Start radar", body: "Scan support, email, Slack, CRM notes, and product signals." },
-      { title: "Find churn risk", body: "Name the customer, symptom, and next recovery move." },
-      { title: "Draft save plan", body: "Create an approval card with the safest next contact." },
+      { title: "Risk signs", body: "Complaint language, silence, unresolved bugs, and leadership escalation." },
+      { title: "Recovery", body: "Name the customer, symptom, and safest next contact." },
+      { title: "Boundary", body: "Drafts are approval-only before sending." },
     ],
-    image_text: "CUSTOMERS\nradar",
     category: "customer",
   },
   {
@@ -180,11 +163,10 @@ const DEMO_CARDS = [
     importance: "med",
     buttons: ["Prep next meeting", "Find last context", "Daily agenda"],
     blocks: [
-      { title: "Prep next meeting", body: "Gather attendees, prior threads, docs, and open decisions." },
-      { title: "Find last context", body: "Recover the last relevant exchange before the meeting starts." },
-      { title: "Daily agenda", body: "Summarize only meetings where prep changes the outcome." },
+      { title: "Prep packet", body: "Attendees, prior threads, docs, open decisions, and likely objections." },
+      { title: "Question list", body: "Three questions that change the outcome of the meeting." },
+      { title: "Follow-up", body: "Draft the recap after the meeting if approved." },
     ],
-    image_text: "CALENDAR\nready",
     category: "calendar",
   },
   {
@@ -196,11 +178,10 @@ const DEMO_CARDS = [
     importance: "med",
     buttons: ["Set 9am brief", "Show sample", "Pick sources"],
     blocks: [
-      { title: "Set 9am brief", body: "Schedule a PT morning brief that creates cards, not a wall of text." },
-      { title: "Show sample", body: "Preview money, users, bugs, shipping, people, and risks." },
-      { title: "Pick sources", body: "Choose Gmail, Slack, GitHub, Linear, Calendar, analytics, or docs." },
+      { title: "Sections", body: "Money, users, bugs, shipping, people, and risks." },
+      { title: "Format", body: "Cards, not a wall of text." },
+      { title: "Schedule", body: "PT morning brief, with quiet self-pacing between runs." },
     ],
-    image_text: "9AM\nbrief",
     category: "ops",
   },
   {
@@ -212,61 +193,56 @@ const DEMO_CARDS = [
     importance: "med",
     buttons: ["Find next fix", "Watch failures", "Make bug queue"],
     blocks: [
-      { title: "Find next fix", body: "Inspect failing tests, bug reports, incidents, and noisy alerts." },
-      { title: "Watch failures", body: "Keep a recurring monitor quiet until something materially changes." },
-      { title: "Make bug queue", body: "Rank concrete bugs by user pain and shipping risk." },
+      { title: "Inputs", body: "Failing tests, bug reports, incidents, and noisy alerts." },
+      { title: "Ranking", body: "User pain, shipping risk, and confidence." },
+      { title: "Next action", body: "Open a branch, draft a bug report, or monitor quietly." },
     ],
-    image_text: "BUGS\nfix queue",
     category: "quality",
   },
   {
     id: "demo-focus",
     title: "Protect two hours of deep work",
-    why: "Batch low-value replies and only interrupt for named blockers or customer escalations.",
+    why: "Batch low-value replies and only interrupt for named blockers or escalations.",
     source: "miniapp-demo:focus",
     source_label: "Focus",
     importance: "low",
     buttons: ["Start focus block", "Batch replies", "Only urgent"],
     blocks: [
-      { title: "Start focus block", body: "Ask for the window, then quietly watch incoming surfaces." },
-      { title: "Batch replies", body: "Draft low-risk replies for later approval." },
-      { title: "Only urgent", body: "Interrupt only for named blockers, production issues, or time-sensitive decisions." },
+      { title: "Quiet mode", body: "Watch incoming surfaces without interrupting every time." },
+      { title: "Urgent means", body: "Named blocker, production issue, customer escalation, or time-sensitive decision." },
+      { title: "Afterward", body: "Summarize what was ignored, drafted, or needs approval." },
     ],
-    image_text: "FOCUS\n2 hours",
     category: "focus",
   },
   {
     id: "demo-launch",
     title: "Run a launch from idea to reaction follow-up",
-    why: "Launch cards should handle copy, checklists, posting, monitoring, and the next reply.",
+    why: "Handle copy, checklists, posting, monitoring, and the next reply.",
     source: "miniapp-demo:launch",
     source_label: "Launch",
     importance: "high",
     buttons: ["Plan launch", "Draft copy", "Watch reactions"],
     blocks: [
-      { title: "Plan launch", body: "Make a visible checklist with channels, assets, blockers, and approvals." },
-      { title: "Draft copy", body: "Prepare short variants for X, LinkedIn, email, community, and customer follow-up." },
-      { title: "Watch reactions", body: "Turn replies, mentions, signups, and support issues into cards." },
+      { title: "Launch plan", body: "Channels, assets, blockers, owner approvals, and timing." },
+      { title: "Copy", body: "X, LinkedIn, email, community, and customer follow-up variants." },
+      { title: "Reaction loop", body: "Replies, mentions, signups, and support issues become new cards." },
     ],
-    image_text: "LAUNCH\nmake noise",
     category: "launch",
   },
 ];
 
 const CATEGORY_META = {
-  inbox: { label: "Inbox", short: "IN", color: "#ff4d6d" },
-  people: { label: "People", short: "DM", color: "#22c55e" },
-  code: { label: "Code", short: "PR", color: "#38bdf8" },
-  growth: { label: "Growth", short: "GR", color: "#f59e0b" },
-  customer: { label: "Customers", short: "CU", color: "#f97316" },
-  calendar: { label: "Calendar", short: "CA", color: "#a78bfa" },
-  ops: { label: "Ops", short: "OP", color: "#14b8a6" },
+  inbox: { label: "Inbox", short: "IN", color: "#ff5a7a" },
+  people: { label: "People", short: "DM", color: "#19c37d" },
+  code: { label: "Code", short: "PR", color: "#2bb6ff" },
+  growth: { label: "Growth", short: "GR", color: "#f7a72b" },
+  customer: { label: "Customers", short: "CU", color: "#ff7a1a" },
+  calendar: { label: "Calendar", short: "CA", color: "#9b7cff" },
+  ops: { label: "Ops", short: "OP", color: "#19b7a8" },
   quality: { label: "Quality", short: "QA", color: "#ef4444" },
   focus: { label: "Focus", short: "FO", color: "#64748b" },
-  launch: { label: "Launch", short: "LA", color: "#ec4899" },
+  launch: { label: "Launch", short: "LA", color: "#e84aa7" },
 };
-
-const PANEL_ORDER = ["summary", "context", "drafts", "feedback"];
 
 const state = {
   cards: [],
@@ -276,19 +252,34 @@ const state = {
   activity: [],
   me: { settings: {} },
   conceptId: conceptIdFromPath(),
-  selected: {},
   focusCardId: null,
+  selected: {},
   apiOnline: false,
   apiError: "",
   local: loadLocalState(),
 };
+
+function palette(index) {
+  return [
+    "#ff5a7a",
+    "#111827",
+    "#f59e0b",
+    "#22c55e",
+    "#38bdf8",
+    "#8b5cf6",
+    "#f97316",
+    "#14b8a6",
+    "#ef4444",
+    "#eab308",
+  ][index % 10];
+}
 
 function conceptIdFromPath() {
   const path = window.location.pathname.replace(/\/+$/, "");
   const match = path.match(/(?:mini[-_]?app|miniapp)[-/]?(\d{1,2})$/i);
   if (!match) return 0;
   const value = Number(match[1]);
-  return value >= 1 && value <= 10 ? value : 0;
+  return value >= 1 && value <= CONCEPT_COUNT ? value : 0;
 }
 
 function conceptPath(id) {
@@ -307,12 +298,10 @@ function loadLocalState() {
       decisions: parsed.decisions || {},
       cards: Array.isArray(parsed.cards) ? parsed.cards : [],
       notes: parsed.notes || {},
-      panels: parsed.panels || {},
-      mediaOnly: parsed.mediaOnly || {},
       points: Number(parsed.points || 0),
     };
   } catch {
-    return { decisions: {}, cards: [], notes: {}, panels: {}, mediaOnly: {}, points: 0 };
+    return { decisions: {}, cards: [], notes: {}, points: 0 };
   }
 }
 
@@ -385,14 +374,15 @@ function normalizeCard(raw, demo) {
   return {
     ...raw,
     id: raw.id,
-    title: raw.title || fallback.title || "Untitled card",
+    title: raw.title || fallback.title || "Untitled action",
     why: raw.why || raw.description || fallback.why || "This is ready for a one-tap decision.",
     source: raw.source || fallback.source || "miniapp-demo",
     source_label: raw.source_label || fallback.source_label || raw.topic_title || "bux",
+    source_url: raw.source_url || "",
     buttons: ensureButtons(raw.buttons || fallback.buttons),
     blocks: Array.isArray(raw.blocks) && raw.blocks.length ? raw.blocks : fallback.blocks || [],
-    image_text: raw.image_text || fallback.image_text || "",
-    category: raw.category || inferCategory(raw),
+    category: raw.category || fallback.category || inferCategory(raw),
+    importance: raw.importance || fallback.importance || "med",
     demo,
     visual: raw.visual || { kind: "none" },
     created_at: raw.created_at || Math.round(Date.now() / 1000),
@@ -401,11 +391,7 @@ function normalizeCard(raw, demo) {
 
 function ensureButtons(buttons) {
   const labels = (Array.isArray(buttons) ? buttons : []).map((item) => String(item || "").trim()).filter(Boolean);
-  for (const label of ["Start", "Need context", "Skip"]) {
-    if (labels.length >= 3) break;
-    if (!labels.some((item) => item.toLowerCase() === label.toLowerCase())) labels.push(label);
-  }
-  return labels.slice(0, 4);
+  return labels.length ? labels.slice(0, 4) : ["Start"];
 }
 
 function inferCategory(card) {
@@ -425,38 +411,37 @@ function inferCategory(card) {
 function render() {
   const concept = CONCEPTS.find((item) => item.id === state.conceptId);
   if (!concept) {
-    app.className = "concept-shell hub-mode";
     document.body.className = "hub";
+    app.className = "concept-shell hub-mode";
     app.innerHTML = renderHub();
     return;
   }
-  document.body.className = `concept-${concept.id} reel-theme theme-${concept.slug}`;
-  app.className = `concept-shell concept-shell-${concept.slug}`;
+  document.body.className = `concept-page layout-${concept.layout} concept-${concept.id}`;
+  app.className = "concept-shell";
   app.innerHTML = `
     ${renderLabNav(concept)}
-    ${renderFeedConcept(concept)}
+    ${renderConcept(concept)}
   `;
 }
 
 function renderHub() {
   return `
     <section class="hub-hero">
-      <p class="micro">bux reel lab</p>
-      <h1>10 versions of the AI work reel.</h1>
-      <p>Every version uses the same real database cards. The differences are media focus, buttons, feedback, drafts, and overview.</p>
+      <p class="eyebrow">bux concept lab</p>
+      <h1>50 Mini App directions.</h1>
+      <p>No shared card shell. Each route tests a different interaction model for accepting, skipping, expanding, and improving agent work.</p>
       <div class="hub-stats">
         <span>${state.cards.length} cards loaded</span>
-        <span>${Object.keys(groupByCategory()).length} goal sectors</span>
-        <span>${state.apiOnline ? "live data first" : "demo fallback"}</span>
+        <span>${Object.keys(groupByCategory()).length} source groups</span>
+        <span>${state.apiOnline ? "live database" : "demo fallback"}</span>
       </div>
     </section>
     <section class="concept-grid">
       ${CONCEPTS.map((concept) => `
-        <a class="concept-tile concept-tile-${concept.id}" href="${conceptPath(concept.id)}">
-          <span class="tile-kicker">Version ${concept.id}</span>
+        <a class="concept-tile tile-${concept.layout}" style="--accent:${concept.accent}" href="${conceptPath(concept.id)}">
+          <span>Version ${concept.id}</span>
           <strong>${escapeHtml(concept.name)}</strong>
           <p>${escapeHtml(concept.line)}</p>
-          <small>${escapeHtml(concept.score)}</small>
         </a>
       `).join("")}
     </section>
@@ -464,299 +449,874 @@ function renderHub() {
 }
 
 function renderLabNav(concept) {
-  const prev = concept.id === 1 ? 10 : concept.id - 1;
-  const next = concept.id === 10 ? 1 : concept.id + 1;
+  const prev = concept.id === 1 ? CONCEPT_COUNT : concept.id - 1;
+  const next = concept.id === CONCEPT_COUNT ? 1 : concept.id + 1;
   return `
-    <nav class="lab-nav" aria-label="Mini App versions">
-      <a class="lab-home" href="${hubPath()}">All</a>
-      <div class="version-strip">
-        <a href="${conceptPath(prev)}">Prev ${prev}</a>
-        <span>${concept.id} / 10</span>
-        <a href="${conceptPath(next)}">Next ${next}</a>
-      </div>
-      <span class="sync-pill ${state.apiOnline ? "online" : "offline"}">${state.apiOnline ? "live" : "demo"}</span>
+    <nav class="lab-nav" aria-label="Mini App concepts">
+      <a class="lab-home" href="${hubPath()}">All 50</a>
+      <a href="${conceptPath(prev)}">Prev ${prev}</a>
+      <span>${concept.id} / ${CONCEPT_COUNT}</span>
+      <a href="${conceptPath(next)}">Next ${next}</a>
+      <small>${escapeHtml(concept.layout)}</small>
     </nav>
   `;
 }
 
-function renderFeedConcept(concept) {
-  const cards = activeCards(14);
+function renderConcept(concept) {
+  const cards = activeCards(18);
+  const card = focusedCard(cards);
+  const renderer = LAYOUTS[concept.layout] || renderGeneric;
   return `
-    <section class="reel-lab variant-${concept.slug}">
-      ${renderConceptHeader(concept)}
-      ${concept.id === 5 ? renderStoryRail(cards) : ""}
-      ${concept.id === 7 ? renderGoalMap(cards) : ""}
-      ${concept.id === 10 ? renderOpsStrip(cards) : ""}
-      <div class="reel-feed">
-        ${cards.map((card, index) => renderReelCard(card, index, concept)).join("") || emptyPanel()}
-      </div>
+    <section class="concept-screen" style="--accent:${concept.accent}">
+      <header class="concept-title">
+        <span>Version ${concept.id}</span>
+        <h1>${escapeHtml(concept.name)}</h1>
+        <p>${escapeHtml(concept.line)}</p>
+      </header>
+      ${renderer(concept, cards, card)}
     </section>
   `;
 }
 
-function renderConceptHeader(concept) {
+const LAYOUTS = {
+  reel: renderReel,
+  timeline: renderTimeline,
+  stories: renderStories,
+  deck: renderDeck,
+  board: renderBoard,
+  wallet: renderWallet,
+  chat: renderChat,
+  kanban: renderKanban,
+  mail: renderMail,
+  command: renderCommand,
+  magazine: renderMagazine,
+  gallery: renderGallery,
+  checklist: renderChecklist,
+  calendar: renderCalendar,
+  arcade: renderArcade,
+  split: renderSplit,
+  stack: renderStack,
+  voice: renderVoice,
+  compact: renderCompact,
+  table: renderTable,
+  coach: renderCoach,
+  doc: renderDoc,
+  forum: renderForum,
+  linear: renderLinear,
+  playlist: renderPlaylist,
+  quest: renderQuest,
+  shop: renderShop,
+  brief: renderBrief,
+  focus: renderFocus,
+  broadcast: renderBroadcast,
+  crm: renderCrm,
+  terminal: renderTerminal,
+  comic: renderComic,
+  roadmap: renderRoadmap,
+  habit: renderHabit,
+  market: renderMarket,
+  onebutton: renderOneButton,
+  draft: renderDraftStudio,
+  team: renderTeam,
+  shelves: renderShelves,
+  receipt: renderReceipt,
+  auction: renderAuction,
+  launch: renderLaunch,
+  letter: renderLetter,
+  mission: renderMission,
+  sports: renderSports,
+  proof: renderProof,
+  splitdeck: renderSplitDeck,
+  tiles: renderTiles,
+  concierge: renderConcierge,
+};
+
+function renderReel(concept, cards) {
   return `
-    <header class="concept-floating-title">
-      <span>Version ${concept.id}</span>
-      <strong>${escapeHtml(concept.name)}</strong>
-      <small>${escapeHtml(concept.score)}</small>
-    </header>
+    <div class="reel-stream">
+      ${cards.slice(0, 5).map((card) => `
+        <article class="phone-reel ${hasRealVisual(card) ? "" : "no-visual-card"} concept-card" data-card-id="${card.id}">
+          ${renderVisual(card, "reel-visual")}
+          <div class="reel-copy">
+            ${renderMeta(card)}
+            <h2>${escapeHtml(clip(card.title, 82))}</h2>
+            <p>${escapeHtml(clip(card.why, 150))}</p>
+          </div>
+          ${renderActions(card)}
+        </article>
+      `).join("")}
+    </div>
   `;
 }
 
-function renderReelCard(card, index, concept) {
-  const meta = categoryMeta(card);
-  const mediaOnly = Boolean(state.local.mediaOnly[String(card.id)]);
-  const panel = panelFor(card);
-  const forcePoster = concept.id === 9;
+function renderTimeline(concept, cards) {
   return `
-    <article class="reel-card ${mediaOnly ? "media-only" : ""} ${forcePoster ? "force-poster" : ""}" style="--accent:${meta.color}" data-card-id="${card.id}">
-      <div class="media-stage">
-        ${renderMedia(card, forcePoster)}
-        <span class="media-tap-hint">${mediaOnly ? "Tap for details" : "Tap for image only"}</span>
+    <div class="timeline-shell">
+      ${cards.slice(0, 8).map((card) => `
+        <article class="social-post concept-card" data-card-id="${card.id}">
+          <button class="avatar" data-action="focus" data-card-id="${card.id}">${escapeHtml(categoryMeta(card).short)}</button>
+          <div>
+            <header><strong>${escapeHtml(sourceName(card))}</strong><span>@${escapeHtml(card.category)}</span></header>
+            <h2>${escapeHtml(clip(card.title, 92))}</h2>
+            <p>${escapeHtml(clip(card.why, 160))}</p>
+            ${renderVisual(card, "post-media")}
+            ${renderActions(card, "inline-actions")}
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderStories(concept, cards, card) {
+  return `
+    <div class="story-layout">
+      <div class="story-strip">
+        ${cards.slice(0, 8).map((item) => `
+          <button class="${String(item.id) === String(card.id) ? "active" : ""}" data-action="focus" data-card-id="${item.id}">
+            ${renderVisual(item, "story-thumb")}
+            <span>${escapeHtml(sourceName(item))}</span>
+          </button>
+        `).join("")}
       </div>
-      <button class="media-hotspot" data-action="toggle-media" data-card-id="${card.id}" aria-label="Toggle media only"></button>
-      <div class="card-meta">
-        <span>${escapeHtml(meta.label)}</span>
-        <strong>${escapeHtml(sourceName(card))}</strong>
-        ${concept.id === 6 ? `<em>+${pointsFor(card)} XP</em>` : ""}
+      <article class="story-stage concept-card" data-card-id="${card.id}">
+        ${renderVisual(card, "story-visual")}
+        <section>
+          ${renderMeta(card)}
+          <h2>${escapeHtml(clip(card.title, 92))}</h2>
+          <p>${escapeHtml(clip(card.why, 170))}</p>
+          ${renderActions(card)}
+        </section>
+      </article>
+    </div>
+  `;
+}
+
+function renderDeck(concept, cards, card) {
+  return `
+    <div class="deck-shell">
+      ${cards.slice(0, 4).reverse().map((item, index) => `
+        <article class="swipe-card concept-card" style="--stack:${index}" data-card-id="${item.id}">
+          ${renderVisual(item, "deck-visual")}
+          <section>
+            ${renderMeta(item)}
+            <h2>${escapeHtml(clip(item.title, 78))}</h2>
+            <p>${escapeHtml(clip(item.why, 150))}</p>
+          </section>
+        </article>
+      `).join("")}
+      ${renderActions(card, "deck-actions")}
+    </div>
+  `;
+}
+
+function renderBoard(concept, cards) {
+  return `
+    <div class="pin-board">
+      ${cards.slice(0, 12).map((card, index) => `
+        <article class="pin pin-${index % 5} concept-card" data-card-id="${card.id}">
+          ${renderVisual(card, "pin-visual")}
+          <h2>${escapeHtml(clip(card.title, 70))}</h2>
+          <p>${escapeHtml(clip(card.why, 90))}</p>
+          ${renderMiniActions(card)}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderWallet(concept, cards) {
+  return `
+    <div class="wallet-stack">
+      ${cards.slice(0, 6).map((card, index) => `
+        <article class="wallet-pass concept-card" style="--i:${index}" data-card-id="${card.id}">
+          <div>${renderMeta(card)}<h2>${escapeHtml(clip(card.title, 72))}</h2></div>
+          <p>${escapeHtml(clip(card.why, 120))}</p>
+          ${renderActions(card, "pass-actions")}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderChat(concept, cards, card) {
+  return `
+    <div class="chat-shell">
+      <div class="chat-thread">
+        ${cards.slice(0, 5).map((item, index) => `
+          <article class="bubble ${index % 2 ? "user-bubble" : "agent-bubble"} concept-card" data-card-id="${item.id}">
+            <span>${escapeHtml(sourceName(item))}</span>
+            <h2>${escapeHtml(clip(item.title, 90))}</h2>
+            <p>${escapeHtml(clip(item.why, 130))}</p>
+          </article>
+        `).join("")}
       </div>
-      ${concept.id === 7 ? renderCardSector(card, index) : ""}
-      <div class="card-sheet" style="--panel-index:${PANEL_ORDER.indexOf(panel)}">
-        <nav class="panel-tabs">
-          ${PANEL_ORDER.map((item) => `
-            <button class="${panel === item ? "active" : ""}" data-action="panel" data-panel="${item}" data-card-id="${card.id}">
-              ${escapeHtml(panelLabel(item, card))}
-            </button>
+      <div class="chat-composer">${renderMiniActions(card)}<button data-action="voice" data-card-id="${card.id}">Hold to explain</button></div>
+    </div>
+  `;
+}
+
+function renderKanban(concept, cards) {
+  const groups = groupedCards(cards);
+  return `
+    <div class="kanban-board">
+      ${groups.slice(0, 4).map(([key, items]) => `
+        <section>
+          <h2>${escapeHtml(categoryMeta({ category: key }).label)}</h2>
+          ${items.slice(0, 4).map((card) => `
+            <article class="lane-card concept-card" data-card-id="${card.id}">
+              <strong>${escapeHtml(clip(card.title, 72))}</strong>
+              <p>${escapeHtml(clip(card.why, 90))}</p>
+              ${renderMiniActions(card)}
+            </article>
           `).join("")}
-        </nav>
-        <div class="panel-track">
-          ${renderSummaryPanel(card, concept)}
-          ${renderContextPanel(card)}
-          ${renderDraftsPanel(card)}
-          ${renderFeedbackPanel(card)}
-        </div>
-      </div>
-      ${renderDecisionDock(card, concept)}
-      ${renderSideRail(card, index, concept)}
+        </section>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderMail(concept, cards, card) {
+  return `
+    <div class="mail-app">
+      <aside>
+        ${cards.slice(0, 7).map((item) => `
+          <button class="${String(item.id) === String(card.id) ? "active" : ""}" data-action="focus" data-card-id="${item.id}">
+            <strong>${escapeHtml(clip(item.title, 48))}</strong>
+            <span>${escapeHtml(sourceName(item))}</span>
+          </button>
+        `).join("")}
+      </aside>
+      <article class="mail-detail concept-card" data-card-id="${card.id}">
+        ${renderMeta(card)}
+        <h2>${escapeHtml(card.title)}</h2>
+        <p>${escapeHtml(clip(card.why, 240))}</p>
+        ${renderBlocks(card)}
+        ${renderActions(card)}
+      </article>
+    </div>
+  `;
+}
+
+function renderCommand(concept, cards, card) {
+  return `
+    <div class="command-grid">
+      <section class="stat-card"><span>Open</span><strong>${activeCards(100).length}</strong></section>
+      <section class="stat-card"><span>Points</span><strong>${state.local.points || 0}</strong></section>
+      <section class="stat-card"><span>Sources</span><strong>${Object.keys(groupByCategory()).length}</strong></section>
+      <article class="command-main concept-card" data-card-id="${card.id}">
+        ${renderVisual(card, "command-visual")}
+        <div>${renderMeta(card)}<h2>${escapeHtml(card.title)}</h2><p>${escapeHtml(clip(card.why, 180))}</p></div>
+        ${renderActions(card)}
+      </article>
+      <section class="command-queue">
+        ${cards.slice(1, 6).map((item) => `<button data-action="focus" data-card-id="${item.id}">${escapeHtml(clip(item.title, 58))}</button>`).join("")}
+      </section>
+    </div>
+  `;
+}
+
+function renderMagazine(concept, cards, card) {
+  return `
+    <article class="magazine concept-card" data-card-id="${card.id}">
+      ${renderVisual(card, "mag-cover")}
+      <section>
+        ${renderMeta(card)}
+        <h2>${escapeHtml(card.title)}</h2>
+        <p>${escapeHtml(clip(card.why, 220))}</p>
+        ${renderActions(card)}
+      </section>
     </article>
   `;
 }
 
-function renderMedia(card, forcePoster = false) {
-  const visual = forcePoster ? { kind: "none" } : card.visual || {};
+function renderGallery(concept, cards, card) {
+  return `
+    <div class="gallery-layout">
+      <div class="gallery-grid">
+        ${cards.slice(0, 9).map((item) => `
+          <button data-action="focus" data-card-id="${item.id}">
+            ${renderVisual(item, "gallery-thumb")}
+          </button>
+        `).join("")}
+      </div>
+      <article class="gallery-caption concept-card" data-card-id="${card.id}">
+        <h2>${escapeHtml(clip(card.title, 70))}</h2>
+        <p>${escapeHtml(clip(card.why, 130))}</p>
+        ${renderActions(card)}
+      </article>
+    </div>
+  `;
+}
+
+function renderChecklist(concept, cards) {
+  return `
+    <div class="checklist-shell">
+      ${cards.slice(0, 9).map((card, index) => `
+        <article class="check-row concept-card" data-card-id="${card.id}">
+          <button data-action="start" data-card-id="${card.id}">${index + 1}</button>
+          <div><strong>${escapeHtml(clip(card.title, 86))}</strong><p>${escapeHtml(clip(card.why, 100))}</p></div>
+          <button data-action="skip" data-card-id="${card.id}">Skip</button>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderCalendar(concept, cards) {
+  return `
+    <div class="calendar-shell">
+      ${cards.slice(0, 7).map((card, index) => `
+        <article class="time-block concept-card" data-card-id="${card.id}">
+          <time>${String(9 + index).padStart(2, "0")}:00</time>
+          <div><h2>${escapeHtml(clip(card.title, 76))}</h2><p>${escapeHtml(clip(card.why, 100))}</p>${renderMiniActions(card)}</div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderArcade(concept, cards, card) {
+  const choices = cardButtons(card);
+  return `
+    <div class="arcade-shell">
+      <div class="slot-window">
+        ${choices.slice(0, 3).map((button) => `<span>${escapeHtml(button.text)}</span>`).join("")}
+      </div>
+      <article class="arcade-card concept-card" data-card-id="${card.id}">
+        ${renderVisual(card, "arcade-visual")}
+        <h2>${escapeHtml(card.title)}</h2>
+        <p>${escapeHtml(clip(card.why, 150))}</p>
+      </article>
+      ${renderActions(card, "arcade-actions")}
+    </div>
+  `;
+}
+
+function renderSplit(concept, cards, card) {
+  return `
+    <article class="split-shell concept-card" data-card-id="${card.id}">
+      ${renderVisual(card, "split-visual")}
+      <section>
+        ${renderMeta(card)}
+        <h2>${escapeHtml(card.title)}</h2>
+        <p>${escapeHtml(clip(card.why, 200))}</p>
+        ${renderBlocks(card)}
+        ${renderActions(card)}
+      </section>
+    </article>
+  `;
+}
+
+function renderStack(concept, cards) {
+  return `
+    <div class="paper-stack">
+      ${cards.slice(0, 5).map((card, index) => `
+        <article class="paper-card concept-card" style="--i:${index}" data-card-id="${card.id}">
+          ${renderMeta(card)}
+          <h2>${escapeHtml(clip(card.title, 96))}</h2>
+          <p>${escapeHtml(clip(card.why, 150))}</p>
+          ${renderMiniActions(card)}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderVoice(concept, cards, card) {
+  return `
+    <div class="voice-shell">
+      <article class="voice-card concept-card" data-card-id="${card.id}">
+        <div class="wave"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        ${renderMeta(card)}
+        <h2>${escapeHtml(card.title)}</h2>
+        <p>${escapeHtml(clip(card.why, 180))}</p>
+        <button class="voice-giant" data-action="voice" data-card-id="${card.id}">Tell agent what is wrong</button>
+        ${renderActions(card)}
+      </article>
+    </div>
+  `;
+}
+
+function renderCompact(concept, cards) {
+  return `
+    <div class="compact-list">
+      ${cards.slice(0, 12).map((card) => `
+        <article class="compact-row concept-card" data-card-id="${card.id}">
+          <span>${escapeHtml(categoryMeta(card).short)}</span>
+          <strong>${escapeHtml(clip(card.title, 64))}</strong>
+          ${renderMiniActions(card)}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderTable(concept, cards) {
+  return `
+    <div class="table-shell">
+      <div class="table-head"><span>Source</span><span>Action</span><span>Impact</span></div>
+      ${cards.slice(0, 10).map((card) => `
+        <article class="table-row concept-card" data-card-id="${card.id}">
+          <span>${escapeHtml(sourceName(card))}</span>
+          <strong>${escapeHtml(clip(card.title, 60))}</strong>
+          ${renderMiniActions(card)}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderCoach(concept, cards, card) {
+  return `
+    <article class="coach-shell concept-card" data-card-id="${card.id}">
+      <section class="coach-advice"><span>Recommended next move</span><h2>${escapeHtml(clip(card.title, 82))}</h2></section>
+      <section><h3>Why now</h3><p>${escapeHtml(clip(card.why, 180))}</p></section>
+      <section><h3>Evidence</h3>${renderBlocks(card)}</section>
+      ${renderActions(card)}
+    </article>
+  `;
+}
+
+function renderDoc(concept, cards, card) {
+  return `
+    <article class="doc-shell concept-card" data-card-id="${card.id}">
+      <h2>${escapeHtml(card.title)}</h2>
+      <p>${escapeHtml(clip(card.why, 240))}</p>
+      ${renderBlocks(card)}
+      ${renderActions(card)}
+    </article>
+  `;
+}
+
+function renderForum(concept, cards) {
+  return `
+    <div class="forum-feed">
+      ${cards.slice(0, 7).map((card) => `
+        <article class="forum-post concept-card" data-card-id="${card.id}">
+          <aside>${pointsFor(card)}<span>pts</span></aside>
+          <section><h2>${escapeHtml(clip(card.title, 80))}</h2><p>${escapeHtml(clip(card.why, 120))}</p>${renderMiniActions(card)}</section>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderLinear(concept, cards) {
+  return `
+    <div class="linear-list">
+      ${cards.slice(0, 10).map((card, index) => `
+        <article class="linear-row concept-card" data-card-id="${card.id}">
+          <span>BUX-${100 + index}</span>
+          <strong>${escapeHtml(clip(card.title, 76))}</strong>
+          <em>${escapeHtml(card.importance)}</em>
+          ${renderMiniActions(card)}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderPlaylist(concept, cards, card) {
+  return `
+    <div class="playlist-shell concept-card" data-card-id="${card.id}">
+      ${renderVisual(card, "album-art")}
+      <section><h2>${escapeHtml(card.title)}</h2><p>${escapeHtml(clip(card.why, 160))}</p>${renderActions(card)}</section>
+      <ol>${cards.slice(1, 7).map((item) => `<li><button data-action="focus" data-card-id="${item.id}">${escapeHtml(clip(item.title, 64))}</button></li>`).join("")}</ol>
+    </div>
+  `;
+}
+
+function renderQuest(concept, cards) {
+  return `
+    <div class="quest-ladder">
+      ${cards.slice(0, 7).map((card, index) => `
+        <article class="quest-step concept-card" data-card-id="${card.id}">
+          <span>${index + 1}</span>
+          <div><strong>${escapeHtml(clip(card.title, 76))}</strong><p>+${pointsFor(card)} momentum</p></div>
+          ${renderMiniActions(card)}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderShop(concept, cards) {
+  return `
+    <div class="shop-shelf">
+      ${cards.slice(0, 8).map((card) => `
+        <article class="shop-card concept-card" data-card-id="${card.id}">
+          ${renderVisual(card, "shop-visual")}
+          <h2>${escapeHtml(clip(card.title, 62))}</h2>
+          <p>${escapeHtml(clip(card.why, 92))}</p>
+          ${renderMiniActions(card)}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderBrief(concept, cards, card) {
+  return `
+    <article class="brief-shell concept-card" data-card-id="${card.id}">
+      <time>Today</time>
+      <h2>${escapeHtml(card.title)}</h2>
+      <p>${escapeHtml(clip(card.why, 190))}</p>
+      <div class="brief-lines">${cards.slice(1, 5).map((item) => `<span>${escapeHtml(clip(item.title, 54))}</span>`).join("")}</div>
+      ${renderActions(card)}
+    </article>
+  `;
+}
+
+function renderFocus(concept, cards, card) {
+  return `
+    <article class="focus-shell concept-card" data-card-id="${card.id}">
+      <span>${escapeHtml(sourceName(card))}</span>
+      <h2>${escapeHtml(card.title)}</h2>
+      <p>${escapeHtml(clip(card.why, 180))}</p>
+      ${renderActions(card)}
+    </article>
+  `;
+}
+
+function renderBroadcast(concept, cards, card) {
+  return `
+    <div class="broadcast-shell">
+      <article class="dispatch concept-card" data-card-id="${card.id}">
+        <span>Dispatch ready</span>
+        <h2>${escapeHtml(card.title)}</h2>
+        <p>${escapeHtml(clip(card.why, 180))}</p>
+      </article>
+      <aside>${renderActions(card)}<button data-action="context" data-card-id="${card.id}">Edit before sending</button></aside>
+    </div>
+  `;
+}
+
+function renderCrm(concept, cards) {
+  return `
+    <div class="crm-pipeline">
+      ${["Lead", "Risk", "Follow-up"].map((label, lane) => `
+        <section><h2>${label}</h2>${cards.filter((_, index) => index % 3 === lane).slice(0, 4).map((card) => `
+          <article class="crm-card concept-card" data-card-id="${card.id}">
+            <strong>${escapeHtml(clip(card.title, 62))}</strong>
+            <p>${escapeHtml(sourceName(card))}</p>
+            ${renderMiniActions(card)}
+          </article>
+        `).join("")}</section>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderTerminal(concept, cards, card) {
+  return `
+    <article class="terminal-shell concept-card" data-card-id="${card.id}">
+      <pre>$ bux suggest --next\nsource=${escapeHtml(sourceName(card))}\nimpact=${pointsFor(card)}\n\n${escapeHtml(clip(card.title, 140))}</pre>
+      <p>${escapeHtml(clip(card.why, 180))}</p>
+      ${renderActions(card)}
+    </article>
+  `;
+}
+
+function renderComic(concept, cards, card) {
+  const blocks = card.blocks.length ? card.blocks : [{ title: "Problem", body: card.why }, { title: "Agent", body: card.action || primaryButton(card) }, { title: "You", body: "Approve, skip, or comment." }];
+  return `
+    <div class="comic-strip concept-card" data-card-id="${card.id}">
+      ${blocks.slice(0, 3).map((block) => `<section><strong>${escapeHtml(block.title)}</strong><p>${escapeHtml(clip(block.body, 110))}</p></section>`).join("")}
+      ${renderActions(card)}
+    </div>
+  `;
+}
+
+function renderRoadmap(concept, cards) {
+  const groups = groupedCards(cards);
+  const card = cards[0];
+  return `
+    <div class="roadmap-shell">
+      ${groups.slice(0, 4).map(([key, items], lane) => `
+        <section><h2>${escapeHtml(categoryMeta({ category: key }).label)}</h2>${items.slice(0, 3).map((card) => `
+          <article class="road-card concept-card" style="--lane:${lane}" data-card-id="${card.id}">${escapeHtml(clip(card.title, 70))}</article>
+        `).join("")}</section>
+      `).join("")}
+      ${card ? renderActions(card, "road-actions") : ""}
+    </div>
+  `;
+}
+
+function renderHabit(concept, cards, card) {
+  return `
+    <article class="habit-shell concept-card" data-card-id="${card.id}">
+      <div class="rings"><span>7</span><span>14</span><span>30</span></div>
+      <h2>${escapeHtml(card.title)}</h2>
+      <p>${escapeHtml(clip(card.why, 160))}</p>
+      ${renderActions(card)}
+    </article>
+  `;
+}
+
+function renderMarket(concept, cards) {
+  return renderShop(concept, cards);
+}
+
+function renderOneButton(concept, cards, card) {
+  return `
+    <article class="one-button-shell concept-card" data-card-id="${card.id}">
+      ${renderMeta(card)}
+      <h2>${escapeHtml(card.title)}</h2>
+      <p>${escapeHtml(clip(card.why, 180))}</p>
+      <button class="mega-button" data-action="start" data-card-id="${card.id}">${escapeHtml(primaryButton(card))}</button>
+      <button data-action="skip" data-card-id="${card.id}">Skip</button>
+      <button data-action="context" data-card-id="${card.id}">Tell agent what to change</button>
+    </article>
+  `;
+}
+
+function renderDraftStudio(concept, cards, card) {
+  return `
+    <div class="draft-studio concept-card" data-card-id="${card.id}">
+      <aside><h2>${escapeHtml(clip(card.title, 70))}</h2><p>${escapeHtml(clip(card.why, 120))}</p></aside>
+      <section>${renderBlocks(card)}</section>
+      ${renderActions(card)}
+    </div>
+  `;
+}
+
+function renderTeam(concept, cards) {
+  return `
+    <div class="team-room">
+      ${cards.slice(0, 8).map((card) => `
+        <article class="person-card concept-card" data-card-id="${card.id}">
+          <span>${escapeHtml(categoryMeta(card).short)}</span>
+          <strong>${escapeHtml(sourceName(card))}</strong>
+          <p>${escapeHtml(clip(card.title, 82))}</p>
+          ${renderMiniActions(card)}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderShelves(concept, cards) {
+  const groups = groupedCards(cards);
+  const card = cards[0];
+  return `
+    <div class="shelves">
+      ${groups.slice(0, 5).map(([key, items]) => `
+        <section><h2>${escapeHtml(categoryMeta({ category: key }).label)}</h2><div>${items.map((card) => `<button data-action="focus" data-card-id="${card.id}">${escapeHtml(clip(card.title, 54))}</button>`).join("")}</div></section>
+      `).join("")}
+      ${card ? `<article class="concept-card shelf-action" data-card-id="${card.id}">${renderActions(card)}</article>` : ""}
+    </div>
+  `;
+}
+
+function renderReceipt(concept, cards, card) {
+  return `
+    <article class="receipt-shell concept-card" data-card-id="${card.id}">
+      <h2>Agent receipt</h2>
+      <p>${escapeHtml(card.title)}</p>
+      ${renderBlocks(card)}
+      <hr />
+      ${renderActions(card)}
+    </article>
+  `;
+}
+
+function renderAuction(concept, cards) {
+  return `
+    <div class="auction-room">
+      ${cards.slice(0, 6).map((card) => `
+        <article class="bid-card concept-card" data-card-id="${card.id}">
+          <span>${pointsFor(card)}</span>
+          <h2>${escapeHtml(clip(card.title, 70))}</h2>
+          ${renderMiniActions(card)}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderLaunch(concept, cards, card) {
+  return `
+    <div class="launch-shell concept-card" data-card-id="${card.id}">
+      <section><h2>${escapeHtml(card.title)}</h2><p>${escapeHtml(clip(card.why, 160))}</p>${renderActions(card)}</section>
+      <ol>${["Copy", "Assets", "Post", "Watch", "Reply"].map((step) => `<li>${step}</li>`).join("")}</ol>
+    </div>
+  `;
+}
+
+function renderLetter(concept, cards, card) {
+  return `
+    <article class="letter-shell concept-card" data-card-id="${card.id}">
+      <p>Dear Magnus,</p>
+      <h2>${escapeHtml(card.title)}</h2>
+      <p>${escapeHtml(clip(card.why, 210))}</p>
+      <p>The agent will stay inside approval boundaries unless you tap start.</p>
+      ${renderActions(card)}
+    </article>
+  `;
+}
+
+function renderMission(concept, cards, card) {
+  return `
+    <div class="mission-shell concept-card" data-card-id="${card.id}">
+      <section class="orbit">${renderVisual(card, "mission-visual")}</section>
+      <section><span>Mission objective</span><h2>${escapeHtml(card.title)}</h2><p>${escapeHtml(clip(card.why, 160))}</p>${renderActions(card)}</section>
+    </div>
+  `;
+}
+
+function renderSports(concept, cards, card) {
+  return `
+    <article class="sports-shell concept-card" data-card-id="${card.id}">
+      ${renderVisual(card, "sports-visual")}
+      <h2>${escapeHtml(card.title)}</h2>
+      <div class="stats"><span>Impact ${pointsFor(card)}</span><span>${escapeHtml(card.importance)}</span><span>${escapeHtml(sourceName(card))}</span></div>
+      ${renderActions(card)}
+    </article>
+  `;
+}
+
+function renderProof(concept, cards, card) {
+  return `
+    <article class="proof-shell concept-card" data-card-id="${card.id}">
+      <section><h2>Evidence</h2>${renderBlocks(card)}</section>
+      <section><h2>${escapeHtml(card.title)}</h2><p>${escapeHtml(clip(card.why, 160))}</p>${renderActions(card)}</section>
+    </article>
+  `;
+}
+
+function renderSplitDeck(concept, cards, card) {
+  const buttons = cardButtons(card);
+  return `
+    <div class="splitdeck-shell concept-card" data-card-id="${card.id}">
+      ${buttons.slice(0, 2).map((button, index) => `<section><span>Option ${index + 1}</span><h2>${escapeHtml(button.text)}</h2><p>${escapeHtml(clip(card.why, 130))}</p><button data-action="variant" data-card-id="${card.id}" data-index="${index}">Choose</button></section>`).join("")}
+      ${renderActions(card)}
+    </div>
+  `;
+}
+
+function renderTiles(concept, cards) {
+  return `
+    <div class="tile-os">
+      ${cards.slice(0, 12).map((card) => `
+        <article class="os-tile concept-card" data-card-id="${card.id}">
+          <button data-action="focus" data-card-id="${card.id}"><span>${escapeHtml(categoryMeta(card).short)}</span>${escapeHtml(clip(card.title, 48))}</button>
+          ${renderMiniActions(card)}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderConcierge(concept, cards, card) {
+  return `
+    <article class="concierge-shell concept-card" data-card-id="${card.id}">
+      <span>Concierge proposal</span>
+      <h2>${escapeHtml(card.title)}</h2>
+      <p>${escapeHtml(clip(card.why, 180))}</p>
+      ${renderBlocks(card)}
+      ${renderActions(card)}
+    </article>
+  `;
+}
+
+function renderGeneric(concept, cards, card) {
+  return renderSplit(concept, cards, card);
+}
+
+function renderVisual(card, extra = "") {
+  const meta = categoryMeta(card);
+  const visual = card.visual || {};
   if (visual.kind === "video" && visual.src) {
-    return `
-      <figure class="card-media video-media">
-        <video src="${escapeAttr(visual.src)}" autoplay loop muted playsinline></video>
-      </figure>
-    `;
+    return `<figure class="visual-box ${extra}"><video src="${escapeAttr(visual.src)}" autoplay loop muted playsinline></video></figure>`;
   }
   if (visual.kind === "image" && visual.src) {
-    return `
-      <figure class="card-media image-media">
-        <img src="${escapeAttr(visual.src)}" alt="" loading="lazy" />
-      </figure>
-    `;
+    return `<figure class="visual-box ${extra}"><img src="${escapeAttr(visual.src)}" alt="" loading="lazy" /></figure>`;
   }
-  const meta = categoryMeta(card);
-  const lines = String(card.image_text || "").split(/\n+/).filter(Boolean);
-  const top = lines[0] || meta.label;
-  const bottom = lines.slice(1).join(" ") || sourceName(card);
   return `
-    <figure class="card-media poster-media">
+    <figure class="visual-box visual-art no-media ${extra}" style="--card-accent:${meta.color}">
+      <i></i><i></i><i></i>
       <span>${escapeHtml(meta.short)}</span>
-      <strong>${escapeHtml(top)}</strong>
-      <small>${escapeHtml(bottom)}</small>
     </figure>
   `;
 }
 
-function renderSummaryPanel(card, concept) {
-  const title = concept.id === 8 ? clip(card.title, 62) : card.title;
-  const titleClass = String(title).length > 42 ? " title-long" : "";
+function hasRealVisual(card) {
+  return Boolean(card?.visual?.src && ["image", "video"].includes(card.visual.kind));
+}
+
+function renderMeta(card) {
+  const meta = categoryMeta(card);
   return `
-    <section class="info-panel summary-panel${titleClass}">
-      <p>${escapeHtml(categoryMeta(card).label)} / ${escapeHtml(sourceName(card))}</p>
-      <h2>${escapeHtml(title)}</h2>
-      <div class="why">${escapeHtml(clip(card.why, concept.id === 1 ? 150 : 190))}</div>
-    </section>
+    <div class="meta-line" style="--card-accent:${meta.color}">
+      <span>${escapeHtml(meta.label)}</span>
+      <strong>${escapeHtml(sourceName(card))}</strong>
+    </div>
   `;
 }
 
-function renderContextPanel(card) {
-  const block = card.blocks?.[0];
-  const body = block?.body || card.action || card.why || "No extra context on this card yet.";
+function renderActions(card, className = "") {
+  const choices = agentChoices(card).slice(0, 3);
   return `
-    <section class="info-panel context-panel">
-      <p>Context</p>
-      <h2>${escapeHtml(block?.title || "What the agent knows")}</h2>
-      <div class="body-copy">${escapeHtml(clip(body, 420))}</div>
-    </section>
-  `;
-}
-
-function renderDraftsPanel(card) {
-  const blocks = Array.isArray(card.blocks) && card.blocks.length ? card.blocks : [
-    { title: "Draft action", body: card.action || "The agent should produce the concrete artifact after you tap a button." },
-  ];
-  return `
-    <section class="info-panel drafts-panel">
-      <p>Drafts / variants</p>
-      <div class="draft-stack">
-        ${blocks.slice(0, 4).map((block, index) => `
-          <article>
-            <span>${index + 1}</span>
-            <strong>${escapeHtml(block.title || `Option ${index + 1}`)}</strong>
-            <small>${escapeHtml(clip(block.body || "", 130))}</small>
-          </article>
+    <footer class="action-bar ${className}">
+      <div class="agent-buttons">
+        ${choices.map((button, index) => `
+          <button class="${index === 0 ? "primary-action" : ""}" data-action="start" data-card-id="${card.id}" data-index="${button.index}">
+            ${escapeHtml(button.text)}
+          </button>
         `).join("")}
       </div>
-    </section>
-  `;
-}
-
-function renderFeedbackPanel(card) {
-  return `
-    <section class="info-panel feedback-panel">
-      <p>Feedback</p>
-      <h2>Make the next card better.</h2>
-      <div class="feedback-grid">
-        ${["Too vague", "Need image", "Wrong goal", "More concrete"].map((label) => `
-          <button data-action="quick-note" data-card-id="${card.id}" data-note="${escapeAttr(label)}">${escapeHtml(label)}</button>
-        `).join("")}
-        <button class="voice-wide" data-action="voice" data-card-id="${card.id}">Voice note</button>
-      </div>
-    </section>
-  `;
-}
-
-function renderDecisionDock(card, concept) {
-  const buttons = cardButtons(card);
-  const selected = buttons[selectedIndex(card)] || buttons[0];
-  const alternates = buttons.filter((_, index) => index !== selectedIndex(card)).slice(0, 3);
-  const primaryLabel = concept.id === 8 ? "Do it" : selected.text;
-  const longActions = [primaryLabel, ...alternates.map((item) => item.text)].some((label) => String(label).length > 24);
-  return `
-    <footer class="decision-dock ${longActions ? "long-actions" : ""}">
-      <button class="primary-decision" data-action="start" data-card-id="${card.id}">
-        <span>${escapeHtml(primaryLabel)}</span>
-      </button>
-      <div class="secondary-decisions">
-        ${alternates.map((item, index) => `
-          <button data-action="variant" data-card-id="${card.id}" data-index="${buttons.indexOf(item)}">${escapeHtml(item.text)}</button>
-        `).join("")}
+      <div class="utility-buttons">
+        <button data-action="skip" data-card-id="${card.id}">Skip</button>
         <button data-action="context" data-card-id="${card.id}">Add context</button>
       </div>
     </footer>
   `;
 }
 
-function renderSideRail(card, index, concept) {
+function renderMiniActions(card) {
+  const primary = agentChoices(card)[0];
   return `
-    <aside class="side-rail">
-      <button data-action="panel" data-panel="context" data-card-id="${card.id}">
-        <strong>${String(index + 1).padStart(2, "0")}</strong>
-        <span>Context</span>
-      </button>
-      <button data-action="panel" data-panel="drafts" data-card-id="${card.id}">
-        <strong>${Array.isArray(card.blocks) ? card.blocks.length : 0}</strong>
-        <span>Drafts</span>
-      </button>
-      <button data-action="voice" data-card-id="${card.id}">
-        <strong>mic</strong>
-        <span>Voice</span>
-      </button>
-      <button data-action="skip" data-card-id="${card.id}">
-        <strong>${concept.id === 6 ? `+${Math.max(5, pointsFor(card) / 4)}` : "skip"}</strong>
-        <span>Skip</span>
-      </button>
-    </aside>
+    <div class="mini-actions">
+      <button data-action="start" data-card-id="${card.id}" data-index="${primary.index}">${escapeHtml(clip(primary.text, 22))}</button>
+      <button data-action="skip" data-card-id="${card.id}">Skip</button>
+    </div>
   `;
 }
 
-function renderStoryRail(cards) {
-  const groups = Object.entries(groupByCategory()).slice(0, 8);
+function renderBlocks(card) {
+  const blocks = Array.isArray(card.blocks) && card.blocks.length ? card.blocks : [
+    { title: "Context", body: card.action || card.why || "No extra context yet." },
+  ];
   return `
-    <div class="story-rail">
-      ${groups.map(([key, items]) => `
-        <button style="--accent:${categoryMeta({ category: key }).color}" data-action="focus" data-card-id="${items[0]?.id || ""}">
-          <span>${escapeHtml(categoryMeta({ category: key }).short)}</span>
-          <strong>${escapeHtml(categoryMeta({ category: key }).label)}</strong>
-          <small>${items.length}</small>
-        </button>
-      `).join("") || cards.slice(0, 5).map((card) => `
-        <button style="--accent:${categoryMeta(card).color}" data-action="focus" data-card-id="${card.id}">
-          <span>${escapeHtml(categoryMeta(card).short)}</span>
-          <strong>${escapeHtml(sourceName(card))}</strong>
-          <small>1</small>
-        </button>
+    <div class="block-list">
+      ${blocks.slice(0, 3).map((block) => `
+        <section>
+          <strong>${escapeHtml(block.title || "Detail")}</strong>
+          <p>${escapeHtml(clip(block.body || "", 180))}</p>
+        </section>
       `).join("")}
     </div>
   `;
 }
 
-function renderGoalMap(cards) {
-  const groups = Object.entries(groupByCategory()).slice(0, 7);
-  return `
-    <aside class="goal-map">
-      <p>Open goal sectors</p>
-      <div>
-        ${groups.map(([key, items], index) => `
-          <button class="sector sector-${index + 1}" style="--accent:${categoryMeta({ category: key }).color}" data-action="focus" data-card-id="${items[0]?.id || ""}">
-            <span>${escapeHtml(categoryMeta({ category: key }).short)}</span>
-            <strong>${items.length}</strong>
-          </button>
-        `).join("")}
-      </div>
-      <small>${cards.length} cards on deck</small>
-    </aside>
-  `;
-}
-
-function renderCardSector(card, index) {
-  const meta = categoryMeta(card);
-  return `
-    <div class="card-sector">
-      <span style="background:${meta.color}">${escapeHtml(meta.short)}</span>
-      <strong>sector ${index + 1}</strong>
-    </div>
-  `;
-}
-
-function renderOpsStrip(cards) {
-  return `
-    <aside class="ops-strip">
-      <article><span>Open</span><strong>${state.stats.open || activeCards(100).length}</strong></article>
-      <article><span>Points</span><strong>${state.local.points || 0}</strong></article>
-      <article><span>Sectors</span><strong>${Object.keys(groupByCategory()).length}</strong></article>
-      <button data-action="generate">Generate 10</button>
-    </aside>
-  `;
-}
-
-function panelFor(card) {
-  const value = state.local.panels[String(card.id)] || "summary";
-  return PANEL_ORDER.includes(value) ? value : "summary";
-}
-
-function panelLabel(panel, card) {
-  if (panel === "drafts") return Array.isArray(card.blocks) && card.blocks.length ? `Drafts ${card.blocks.length}` : "Action";
-  if (panel === "feedback") return "Tune";
-  return panel[0].toUpperCase() + panel.slice(1);
-}
-
 function activeCards(limit = 100) {
   const pending = state.cards.filter((card) => !["started", "skipped"].includes(decisionFor(card)?.status));
   const cards = pending.length ? pending : state.cards;
-  if (!cards.length) return [];
-  const offset = state.conceptId ? (state.conceptId - 1) % cards.length : 0;
-  const rotated = [...cards.slice(offset), ...cards.slice(0, offset)];
-  return rotated.slice(0, limit);
+  return cards.slice(0, limit);
 }
 
-function focusedCard() {
-  return state.cards.find((card) => String(card.id) === String(state.focusCardId)) || activeCards(1)[0] || null;
+function focusedCard(cards = activeCards(18)) {
+  return cards.find((card) => String(card.id) === String(state.focusCardId)) || cards[0] || state.cards[0] || DEMO_CARDS[0];
+}
+
+function groupedCards(cards = activeCards(100)) {
+  return Object.entries(cards.reduce((acc, card) => {
+    const key = card.category || inferCategory(card);
+    acc[key] ||= [];
+    acc[key].push(card);
+    return acc;
+  }, {}));
 }
 
 function groupByCategory() {
@@ -783,8 +1343,19 @@ function cardButtons(card) {
   return ensureButtons(card?.buttons).map((item) => ({ raw: item, text: buttonText(item) }));
 }
 
+function agentChoices(card) {
+  const choices = cardButtons(card)
+    .map((button, index) => ({ ...button, index }))
+    .filter((button) => button.text.toLowerCase() !== "skip");
+  return choices.length ? choices : [{ raw: "Start", text: "Start", index: 0 }];
+}
+
 function selectedRaw(card) {
   return cardButtons(card)[selectedIndex(card)]?.raw || "";
+}
+
+function primaryButton(card) {
+  return agentChoices(card)[0]?.text || "Start";
 }
 
 function buttonText(value) {
@@ -831,14 +1402,13 @@ function pointsFor(card) {
 function remixCard(card) {
   const source = DEMO_CARDS[(Date.now() + state.local.cards.length) % DEMO_CARDS.length];
   const category = card?.category || source.category || "ops";
-  const meta = CATEGORY_META[category] || CATEGORY_META.ops;
   const copy = {
     ...source,
     id: `local-${Date.now()}`,
     title: card ? `Sharper version: ${clip(card.title, 52)}` : source.title,
-    why: card ? `A generated local remix with a clearer first action for ${sourceName(card)}.` : source.why,
+    why: card ? `A local remix with a clearer first action for ${sourceName(card)}.` : source.why,
     source: `miniapp-local:${Date.now()}`,
-    source_label: `${meta.label} remix`,
+    source_label: "Local remix",
     buttons: ensureButtons(card?.buttons || source.buttons),
     category,
     demo: true,
@@ -886,10 +1456,6 @@ function haptic(kind = "light") {
   } catch {
     // Haptics are optional outside Telegram.
   }
-}
-
-function emptyPanel() {
-  return `<article class="empty-panel"><strong>No cards yet</strong><p>Generate cards or connect a tool to fill this reel with real work.</p></article>`;
 }
 
 function saveNote(card, note) {
@@ -968,23 +1534,6 @@ app.addEventListener("click", (event) => {
     state.focusCardId = card.id;
     haptic("selectionChanged");
     render();
-    document.querySelector(`[data-card-id="${CSS.escape(String(card.id))}"]`)?.scrollIntoView({ block: "center" });
-    return;
-  }
-  if (action === "toggle-media" && card) {
-    const key = String(card.id);
-    state.local.mediaOnly[key] = !state.local.mediaOnly[key];
-    saveLocalState();
-    haptic("light");
-    render();
-    return;
-  }
-  if (action === "panel" && card) {
-    state.local.mediaOnly[String(card.id)] = false;
-    state.local.panels[String(card.id)] = target.dataset.panel || "summary";
-    saveLocalState();
-    haptic("selectionChanged");
-    render();
     return;
   }
   if (action === "variant" && card) {
@@ -994,6 +1543,9 @@ app.addEventListener("click", (event) => {
     return;
   }
   if (action === "start" && card) {
+    if (target.dataset.index !== undefined) {
+      state.selected[String(card.id)] = Number(target.dataset.index || 0);
+    }
     markDecision(card, "started", selectedRaw(card));
     haptic("success");
     toast(`Started: ${buttonText(selectedRaw(card))}`);
@@ -1004,7 +1556,7 @@ app.addEventListener("click", (event) => {
   if (action === "skip" && card) {
     markDecision(card, "skipped", "skip");
     haptic("medium");
-    toast("Skipped. Scroll or keep tapping.");
+    toast("Skipped.");
     render();
     syncSkip(card);
     return;
@@ -1015,18 +1567,6 @@ app.addEventListener("click", (event) => {
   }
   if (action === "voice" && card) {
     addVoiceNote(card);
-    return;
-  }
-  if (action === "quick-note" && card) {
-    const note = target.dataset.note || "Feedback";
-    saveNote(card, note);
-    haptic("success");
-    toast(`Saved: ${note}`);
-    syncComment(card, note);
-    return;
-  }
-  if (action === "remix") {
-    remixCard(card || focusedCard());
     return;
   }
   if (action === "generate") {
