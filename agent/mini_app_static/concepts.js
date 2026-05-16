@@ -3,11 +3,11 @@ tg?.ready();
 tg?.expand();
 
 try {
-  tg?.setHeaderColor?.("#090b10");
-  tg?.setBackgroundColor?.("#090b10");
-  tg?.setBottomBarColor?.("#090b10");
+  tg?.setHeaderColor?.("#050507");
+  tg?.setBackgroundColor?.("#050507");
+  tg?.setBottomBarColor?.("#050507");
 } catch {
-  // Older Telegram clients do not expose every color API.
+  // Telegram client capabilities vary by version.
 }
 
 const params = new URLSearchParams(window.location.search);
@@ -15,78 +15,78 @@ if (params.get("dev") === "1") localStorage.buxMiniAppDev = "1";
 const initData = tg?.initData || (localStorage.buxMiniAppDev === "1" ? "dev" : "");
 const app = document.querySelector("#app");
 const toastEl = document.querySelector("#toast");
-const STORE_KEY = "buxMiniAppConceptLab:v3";
+const STORE_KEY = "buxMiniAppConceptLab:v4";
 
 const CONCEPTS = [
   {
     id: 1,
-    slug: "reels",
-    name: "AI Reels",
-    score: "visual scroll",
-    line: "A TikTok-like work feed. One image, one decision, no dashboard thinking.",
+    slug: "clean",
+    name: "Clean Reel",
+    score: "best base",
+    line: "TikTok-style vertical cards with media first, copy separated, and large buttons.",
   },
   {
     id: 2,
-    slug: "quest",
-    name: "Quest Casino",
-    score: "most addictive",
-    line: "A warmer version of the quest board: jackpots, XP, streaks, and useful work.",
+    slug: "image",
+    name: "Image Tap",
+    score: "media first",
+    line: "Tap the image to hide all explanation. Tap again when you want the decision layer.",
   },
   {
     id: 3,
-    slug: "slot",
-    name: "Idea Slot",
-    score: "fast ideas",
-    line: "Spin through cached ideas, then approve, skip, or remix without waiting on generation.",
+    slug: "dock",
+    name: "Button Dock",
+    score: "long labels",
+    line: "Persistent center buttons for real generated labels like Send draft A or Monitor every 30 min.",
   },
   {
     id: 4,
-    slug: "numbers",
-    name: "Founder Scoreboard",
-    score: "big numbers",
-    line: "The big metrics stay on top. Cards explain exactly what moves a number next.",
+    slug: "drafts",
+    name: "Draft Swipe",
+    score: "variants",
+    line: "Swipe sideways inside a card for summary, context, drafts, and feedback while buttons stay visible.",
   },
   {
     id: 5,
     slug: "stories",
-    name: "Stories Board",
-    score: "social",
-    line: "Telegram work stories: colorful channels, posters, quick reactions, and follow-ups.",
+    name: "Story Reel",
+    score: "click through",
+    line: "A social story lane with category rings and the same fast vertical card loop.",
   },
   {
     id: 6,
-    slug: "speed",
-    name: "Speed Tap",
-    score: "quickest loop",
-    line: "A very fast click-through lane for clearing many cards without losing context.",
+    slug: "xp",
+    name: "XP Reel",
+    score: "gamified",
+    line: "Accepting useful work earns momentum points and keeps the feed playful without hiding the task.",
   },
   {
     id: 7,
-    slug: "radar",
-    name: "Goal Radar",
-    score: "futuristic",
-    line: "A radar overview grouped by goals. Tap a blip to inspect and act.",
+    slug: "map",
+    name: "Goal Map",
+    score: "overview",
+    line: "A compact goal-sector map explains what is open before you dive into the reel.",
   },
   {
     id: 8,
-    slug: "wheel",
-    name: "Action Wheel",
-    score: "playful",
-    line: "A roulette-like wheel for discovering the next high-leverage idea.",
+    slug: "zero",
+    name: "Inbox Zero",
+    score: "fast clearing",
+    line: "A stricter approve/skip loop for clearing many cards with one-thumb controls.",
   },
   {
     id: 9,
-    slug: "gallery",
-    name: "Poster Gallery",
-    score: "most visual",
-    line: "Cards become large collectible posters so the idea is understood immediately.",
+    slug: "poster",
+    name: "No Image Reel",
+    score: "fallback",
+    line: "Shows how the feed behaves when the agent has no image at all: clean generated posters.",
   },
   {
     id: 10,
-    slug: "os",
-    name: "Goal OS",
-    score: "overview",
-    line: "Not another chat. A control room for goals, permissions, cadence, and momentum.",
+    slug: "ops",
+    name: "Agent OS Reel",
+    score: "control",
+    line: "The same reel wrapped in goal, permission, and cadence controls instead of a chatbot.",
   },
 ];
 
@@ -266,6 +266,8 @@ const CATEGORY_META = {
   launch: { label: "Launch", short: "LA", color: "#ec4899" },
 };
 
+const PANEL_ORDER = ["summary", "context", "drafts", "feedback"];
+
 const state = {
   cards: [],
   goals: [],
@@ -276,8 +278,6 @@ const state = {
   conceptId: conceptIdFromPath(),
   selected: {},
   focusCardId: null,
-  spinIndex: 0,
-  wheelTurns: 0,
   apiOnline: false,
   apiError: "",
   local: loadLocalState(),
@@ -307,9 +307,12 @@ function loadLocalState() {
       decisions: parsed.decisions || {},
       cards: Array.isArray(parsed.cards) ? parsed.cards : [],
       notes: parsed.notes || {},
+      panels: parsed.panels || {},
+      mediaOnly: parsed.mediaOnly || {},
+      points: Number(parsed.points || 0),
     };
   } catch {
-    return { decisions: {}, cards: [], notes: {} };
+    return { decisions: {}, cards: [], notes: {}, panels: {}, mediaOnly: {}, points: 0 };
   }
 }
 
@@ -374,7 +377,7 @@ function mergeCards(apiCards) {
     .filter((card) => !existingSources.has(card.source) && !generatedIds.has(String(card.id)))
     .slice(0, needed)
     .map((card) => normalizeCard(card, true));
-  return [...generated, ...normalized, ...demos];
+  return [...normalized, ...generated, ...demos];
 }
 
 function normalizeCard(raw, demo) {
@@ -388,7 +391,7 @@ function normalizeCard(raw, demo) {
     source_label: raw.source_label || fallback.source_label || raw.topic_title || "bux",
     buttons: ensureButtons(raw.buttons || fallback.buttons),
     blocks: Array.isArray(raw.blocks) && raw.blocks.length ? raw.blocks : fallback.blocks || [],
-    image_text: raw.image_text || fallback.image_text || raw.title || "BUX\ncard",
+    image_text: raw.image_text || fallback.image_text || "",
     category: raw.category || inferCategory(raw),
     demo,
     visual: raw.visual || { kind: "none" },
@@ -398,8 +401,7 @@ function normalizeCard(raw, demo) {
 
 function ensureButtons(buttons) {
   const labels = (Array.isArray(buttons) ? buttons : []).map((item) => String(item || "").trim()).filter(Boolean);
-  const defaults = ["Start", "Skip", "Remix"];
-  for (const label of defaults) {
+  for (const label of ["Start", "Need context", "Skip"]) {
     if (labels.length >= 3) break;
     if (!labels.some((item) => item.toLowerCase() === label.toLowerCase())) labels.push(label);
   }
@@ -428,43 +430,30 @@ function render() {
     app.innerHTML = renderHub();
     return;
   }
-  document.body.className = `concept-${concept.id} theme-${concept.slug}`;
+  document.body.className = `concept-${concept.id} reel-theme theme-${concept.slug}`;
   app.className = `concept-shell concept-shell-${concept.slug}`;
-  const renderers = {
-    1: renderReels,
-    2: renderQuestCasino,
-    3: renderSlotMachine,
-    4: renderNumbers,
-    5: renderStories,
-    6: renderSpeedTap,
-    7: renderRadar,
-    8: renderWheel,
-    9: renderGallery,
-    10: renderGoalOS,
-  };
   app.innerHTML = `
     ${renderLabNav(concept)}
-    ${renderers[concept.id]?.(concept) || ""}
+    ${renderFeedConcept(concept)}
   `;
 }
 
 function renderHub() {
   return `
     <section class="hub-hero">
-      <p class="micro">bux experiment lab</p>
-      <h1>10 sharper Mini App experiences.</h1>
-      <p>Same AI action cards, ten different interaction loops: reels, slot machine, radar, roulette, posters, speed tapping, and a goal OS.</p>
+      <p class="micro">bux reel lab</p>
+      <h1>10 versions of the AI work reel.</h1>
+      <p>Every version uses the same real database cards. The differences are media focus, buttons, feedback, drafts, and overview.</p>
       <div class="hub-stats">
         <span>${state.cards.length} cards loaded</span>
-        <span>${Object.keys(groupByCategory()).length} goals/categories</span>
-        <span>${state.apiOnline ? "live data" : "demo fallback"}</span>
+        <span>${Object.keys(groupByCategory()).length} goal sectors</span>
+        <span>${state.apiOnline ? "live data first" : "demo fallback"}</span>
       </div>
-      <button class="mega-spin" data-action="spin-global">Spin a new idea</button>
     </section>
     <section class="concept-grid">
       ${CONCEPTS.map((concept) => `
         <a class="concept-tile concept-tile-${concept.id}" href="${conceptPath(concept.id)}">
-          <span class="tile-kicker">Mini App ${concept.id}</span>
+          <span class="tile-kicker">Version ${concept.id}</span>
           <strong>${escapeHtml(concept.name)}</strong>
           <p>${escapeHtml(concept.line)}</p>
           <small>${escapeHtml(concept.score)}</small>
@@ -490,426 +479,271 @@ function renderLabNav(concept) {
   `;
 }
 
-function renderReels(concept) {
-  const cards = activeCards(10);
+function renderFeedConcept(concept) {
+  const cards = activeCards(14);
   return `
-    <section class="reels-shell">
-      <div class="reels-intro">
-        <span>Mini App 1</span>
-        <h1>${escapeHtml(concept.name)}</h1>
-        <p>${escapeHtml(concept.line)}</p>
-      </div>
+    <section class="reel-lab variant-${concept.slug}">
+      ${renderConceptHeader(concept)}
+      ${concept.id === 5 ? renderStoryRail(cards) : ""}
+      ${concept.id === 7 ? renderGoalMap(cards) : ""}
+      ${concept.id === 10 ? renderOpsStrip(cards) : ""}
       <div class="reel-feed">
-        ${cards.map((card, index) => `
-          <article class="reel-card" data-card-id="${card.id}">
-            ${renderVisual(card, "reel-visual")}
-            <div class="reel-copy">
-              <span>${escapeHtml(categoryMeta(card).label)} / ${escapeHtml(sourceName(card))}</span>
-              <h2>${escapeHtml(card.title)}</h2>
-              <p>${escapeHtml(card.why)}</p>
-              <div class="reel-buttons">
-                ${actionButton("start", card, selectedLabel(card), "primary")}
-                ${actionButton("skip", card, "Skip", "dark")}
-                ${actionButton("remix", card, "Remix", "glass")}
-              </div>
-            </div>
-            <div class="reel-side">
-              <button data-action="focus" data-card-id="${card.id}">${String(index + 1).padStart(2, "0")}</button>
-              <button data-action="context" data-card-id="${card.id}">Tune</button>
-              <button data-action="remix" data-card-id="${card.id}">New</button>
-            </div>
-          </article>
-        `).join("") || emptyPanel()}
+        ${cards.map((card, index) => renderReelCard(card, index, concept)).join("") || emptyPanel()}
       </div>
     </section>
   `;
 }
 
-function renderQuestCasino(concept) {
-  const cards = activeCards(6);
+function renderConceptHeader(concept) {
   return `
-    <section class="quest-casino">
-      <header class="casino-hero">
-        <div>
-          <p class="micro">Mini App 2 / ${escapeHtml(concept.score)}</p>
-          <h1>Clear quests. Win momentum.</h1>
-          <p>${escapeHtml(concept.line)}</p>
-        </div>
-        <div class="jackpot">
-          <span>XP</span>
-          <strong>${xpScore()}</strong>
-          <small>${cards.length} quests open</small>
-        </div>
-      </header>
-      <div class="quest-table">
-        ${cards.map((card, index) => `
-          <article class="quest-ticket ${index === 0 ? "hot" : ""}">
-            <div class="ticket-rank">${index + 1}</div>
-            ${renderVisual(card, "ticket-visual")}
-            <div class="ticket-copy">
-              <span>${escapeHtml(categoryMeta(card).label)}</span>
-              <h2>${escapeHtml(card.title)}</h2>
-              <p>${escapeHtml(card.why)}</p>
-              <div class="ticket-actions">
-                ${variantButtons(card)}
-                ${actionButton("start", card, "Claim quest", "primary")}
-                ${actionButton("skip", card, "Fold", "quiet")}
-              </div>
-            </div>
-          </article>
-        `).join("") || emptyPanel()}
-      </div>
-    </section>
+    <header class="concept-floating-title">
+      <span>Version ${concept.id}</span>
+      <strong>${escapeHtml(concept.name)}</strong>
+      <small>${escapeHtml(concept.score)}</small>
+    </header>
   `;
 }
 
-function renderSlotMachine(concept) {
-  const card = focusedCard() || activeCards(1)[0];
-  const cards = activeCards(10);
-  const prev = cards[(cards.indexOf(card) - 1 + cards.length) % Math.max(1, cards.length)] || card;
-  const next = cards[(cards.indexOf(card) + 1) % Math.max(1, cards.length)] || card;
+function renderReelCard(card, index, concept) {
+  const meta = categoryMeta(card);
+  const mediaOnly = Boolean(state.local.mediaOnly[String(card.id)]);
+  const panel = panelFor(card);
+  const forcePoster = concept.id === 9;
   return `
-    <section class="slot-shell">
-      <div class="slot-marquee">
-        <p class="micro">Mini App 3 / cached idea generator</p>
-        <h1>${escapeHtml(concept.name)}</h1>
-        <p>${escapeHtml(concept.line)}</p>
+    <article class="reel-card ${mediaOnly ? "media-only" : ""} ${forcePoster ? "force-poster" : ""}" style="--accent:${meta.color}" data-card-id="${card.id}">
+      <div class="media-stage">
+        ${renderMedia(card, forcePoster)}
+        <span class="media-tap-hint">${mediaOnly ? "Tap for details" : "Tap for image only"}</span>
       </div>
-      <div class="slot-machine ${state.local.lastSpin ? "spun" : ""}">
-        <div class="slot-window">
-          ${slotReel(prev, "Goal")}
-          ${slotReel(card, "Action", true)}
-          ${slotReel(next, "Reward")}
-        </div>
-        <button class="spin-lever" data-action="spin">Spin</button>
+      <button class="media-hotspot" data-action="toggle-media" data-card-id="${card.id}" aria-label="Toggle media only"></button>
+      <div class="card-meta">
+        <span>${escapeHtml(meta.label)}</span>
+        <strong>${escapeHtml(sourceName(card))}</strong>
+        ${concept.id === 6 ? `<em>+${pointsFor(card)} XP</em>` : ""}
       </div>
-      <article class="slot-result">
-        ${card ? `
-          ${renderVisual(card, "slot-poster")}
-          <div>
-            <span>${escapeHtml(sourceName(card))}</span>
-            <h2>${escapeHtml(card.title)}</h2>
-            <p>${escapeHtml(card.why)}</p>
-            <div class="slot-actions">
-              ${actionButton("start", card, "Yes, run it", "primary")}
-              ${actionButton("skip", card, "No", "dark")}
-              ${actionButton("remix", card, "Generate similar", "glass")}
-            </div>
-          </div>
-        ` : emptyPanel()}
-      </article>
-    </section>
-  `;
-}
-
-function slotReel(card, label, active = false) {
-  return `
-    <div class="slot-reel ${active ? "active" : ""}">
-      <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(card ? clip(card.title, 34) : "New idea")}</strong>
-      <small>${escapeHtml(card ? categoryMeta(card).label : "bux")}</small>
-    </div>
-  `;
-}
-
-function renderNumbers(concept) {
-  const cards = activeCards(5);
-  const grouped = groupByCategory();
-  return `
-    <section class="numbers-shell">
-      <header class="numbers-top">
-        <div>
-          <p class="micro">Mini App 4 / ${escapeHtml(concept.score)}</p>
-          <h1>Numbers first. Cards underneath.</h1>
-        </div>
-        <p>${escapeHtml(concept.line)}</p>
-      </header>
-      <div class="number-wall">
-        <article><span>open</span><strong>${state.stats.open || activeCards(100).length}</strong><small>waiting moves</small></article>
-        <article><span>goals</span><strong>${Object.keys(grouped).length}</strong><small>active lanes</small></article>
-        <article><span>done</span><strong>${state.stats.done || localActivity().length}</strong><small>decisions</small></article>
-      </div>
-      <div class="number-runway">
-        ${cards.map((card) => `
-          <article class="runway-card">
-            ${renderVisual(card, "runway-visual")}
-            <div>
-              <span>${escapeHtml(categoryMeta(card).short)} / ${escapeHtml(sourceName(card))}</span>
-              <h2>${escapeHtml(card.title)}</h2>
-              <p>${escapeHtml(card.why)}</p>
-              <div>${actionButton("start", card, selectedLabel(card), "primary")}${actionButton("skip", card, "Later", "quiet")}</div>
-            </div>
-          </article>
-        `).join("") || emptyPanel()}
-      </div>
-    </section>
-  `;
-}
-
-function renderStories(concept) {
-  const grouped = Object.entries(groupByCategory());
-  const cards = activeCards(8);
-  return `
-    <section class="stories-shell">
-      <header class="stories-header">
-        <p class="micro">Mini App 5 / social work feed</p>
-        <h1>${escapeHtml(concept.name)}</h1>
-        <p>${escapeHtml(concept.line)}</p>
-      </header>
-      <div class="story-bubbles">
-        ${grouped.map(([key, items]) => `
-          <button class="story-bubble" style="--bubble:${categoryMeta({ category: key }).color}" data-action="focus" data-card-id="${items[0]?.id || ""}">
-            <span>${escapeHtml(categoryMeta({ category: key }).short)}</span>
-            <strong>${escapeHtml(categoryMeta({ category: key }).label)}</strong>
-            <small>${items.length}</small>
-          </button>
-        `).join("")}
-      </div>
-      <div class="social-feed">
-        ${cards.map((card) => `
-          <article class="social-post">
-            <header>
-              <div class="avatar-chip">${escapeHtml(categoryMeta(card).short)}</div>
-              <div><strong>${escapeHtml(sourceName(card))}</strong><span>${escapeHtml(relative(card.created_at))}</span></div>
-              <button data-action="remix" data-card-id="${card.id}">Remix</button>
-            </header>
-            ${renderVisual(card, "post-visual")}
-            <h2>${escapeHtml(card.title)}</h2>
-            <p>${escapeHtml(card.why)}</p>
-            <footer>
-              ${actionButton("start", card, selectedLabel(card), "primary")}
-              ${actionButton("context", card, "Comment", "glass")}
-              ${actionButton("skip", card, "Skip", "quiet")}
-            </footer>
-          </article>
-        `).join("") || emptyPanel()}
-      </div>
-    </section>
-  `;
-}
-
-function renderSpeedTap(concept) {
-  const cards = activeCards(6);
-  const card = focusedCard() || cards[0];
-  const progress = Math.min(100, Math.round((localActivity().length / Math.max(1, state.cards.length)) * 100));
-  return `
-    <section class="speed-shell">
-      <aside class="speed-rail">
-        <p class="micro">Mini App 6</p>
-        <h1>Tap through a stack.</h1>
-        <p>${escapeHtml(concept.line)}</p>
-        <div class="speed-meter"><span style="width:${progress}%"></span></div>
-        <strong>${progress}% cleared locally</strong>
-      </aside>
-      <article class="speed-card">
-        ${card ? `
-          ${renderVisual(card, "speed-visual")}
-          <div class="speed-copy">
-            <span>${escapeHtml(categoryMeta(card).label)} / ${escapeHtml(sourceName(card))}</span>
-            <h2>${escapeHtml(card.title)}</h2>
-            <p>${escapeHtml(card.why)}</p>
-            <div class="speed-actions">
-              ${actionButton("skip", card, "No", "danger")}
-              ${actionButton("remix", card, "Different", "glass")}
-              ${actionButton("start", card, "Yes", "primary")}
-            </div>
-          </div>
-        ` : emptyPanel()}
-      </article>
-      <div class="speed-queue">
-        ${cards.map((item, index) => `
-          <button class="${String(item.id) === String(card?.id) ? "active" : ""}" data-action="focus" data-card-id="${item.id}">
-            <span>${index + 1}</span>${escapeHtml(clip(item.title, 42))}
-          </button>
-        `).join("")}
-      </div>
-    </section>
-  `;
-}
-
-function renderRadar(concept) {
-  const cards = activeCards(10);
-  const focus = focusedCard() || cards[0];
-  const groups = Object.entries(groupByCategory());
-  return `
-    <section class="radar-shell">
-      <div class="radar-intro">
-        <p class="micro">Mini App 7 / loved direction</p>
-        <h1>${escapeHtml(concept.name)}</h1>
-        <p>${escapeHtml(concept.line)}</p>
-        <div class="goal-chips">
-          ${groups.map(([key, items]) => `<span style="--chip:${categoryMeta({ category: key }).color}">${escapeHtml(categoryMeta({ category: key }).label)} ${items.length}</span>`).join("")}
-        </div>
-      </div>
-      <div class="radar-map">
-        <div class="radar-grid"></div>
-        <div class="radar-sweep"></div>
-        ${cards.map((card, index) => {
-          const pos = radarPosition(index, card);
-          return `
-            <button class="radar-blip ${String(card.id) === String(focus?.id) ? "active" : ""}" style="left:${pos.x}%;top:${pos.y}%;--blip:${categoryMeta(card).color}" data-action="focus" data-card-id="${card.id}">
-              <span>${escapeHtml(categoryMeta(card).short)}</span>
-              <strong>${escapeHtml(clip(card.title, 28))}</strong>
-            </button>
-          `;
-        }).join("")}
-        <div class="radar-core">bux</div>
-      </div>
-      <aside class="radar-detail">
-        ${focus ? renderFocusPanel(focus, "Pull into work") : emptyPanel()}
-      </aside>
-    </section>
-  `;
-}
-
-function renderWheel(concept) {
-  const cards = activeCards(10);
-  const card = focusedCard() || cards[0];
-  return `
-    <section class="wheel-shell">
-      <header class="wheel-header">
-        <p class="micro">Mini App 8 / roulette discovery</p>
-        <h1>${escapeHtml(concept.name)}</h1>
-        <p>${escapeHtml(concept.line)}</p>
-      </header>
-      <div class="wheel-layout">
-        <div class="wheel" style="--turn:${state.wheelTurns * 38}deg">
-          ${cards.slice(0, 8).map((item, index) => `
-            <button class="wheel-spoke spoke-${index + 1}" data-action="focus" data-card-id="${item.id}">
-              <span>${escapeHtml(categoryMeta(item).short)}</span>
+      ${concept.id === 7 ? renderCardSector(card, index) : ""}
+      <div class="card-sheet" style="--panel-index:${PANEL_ORDER.indexOf(panel)}">
+        <nav class="panel-tabs">
+          ${PANEL_ORDER.map((item) => `
+            <button class="${panel === item ? "active" : ""}" data-action="panel" data-panel="${item}" data-card-id="${card.id}">
+              ${escapeHtml(panelLabel(item, card))}
             </button>
           `).join("")}
-          <button class="wheel-center" data-action="spin-wheel">Spin</button>
+        </nav>
+        <div class="panel-track">
+          ${renderSummaryPanel(card, concept)}
+          ${renderContextPanel(card)}
+          ${renderDraftsPanel(card)}
+          ${renderFeedbackPanel(card)}
         </div>
-        <article class="wheel-card">
-          ${card ? `
-            ${renderVisual(card, "wheel-visual")}
-            <span>${escapeHtml(categoryMeta(card).label)}</span>
-            <h2>${escapeHtml(card.title)}</h2>
-            <p>${escapeHtml(card.why)}</p>
-            <div>${actionButton("start", card, "Run this", "primary")}${actionButton("skip", card, "Pass", "dark")}${actionButton("remix", card, "Similar", "glass")}</div>
-          ` : emptyPanel()}
-        </article>
       </div>
-    </section>
+      ${renderDecisionDock(card, concept)}
+      ${renderSideRail(card, index, concept)}
+    </article>
   `;
 }
 
-function renderGallery(concept) {
-  const cards = activeCards(10);
-  return `
-    <section class="gallery-shell">
-      <header class="gallery-header">
-        <p class="micro">Mini App 9 / visual first</p>
-        <h1>${escapeHtml(concept.name)}</h1>
-        <p>${escapeHtml(concept.line)}</p>
-      </header>
-      <div class="poster-grid">
-        ${cards.map((card, index) => `
-          <article class="poster-card poster-${(index % 5) + 1}">
-            ${renderVisual(card, "poster-visual")}
-            <div class="poster-caption">
-              <span>${escapeHtml(sourceName(card))}</span>
-              <h2>${escapeHtml(card.title)}</h2>
-              <div>${actionButton("start", card, selectedLabel(card), "primary")}${actionButton("skip", card, "Skip", "quiet")}</div>
-            </div>
-          </article>
-        `).join("") || emptyPanel()}
-      </div>
-    </section>
-  `;
-}
-
-function renderGoalOS(concept) {
-  const grouped = Object.entries(groupByCategory());
-  const focus = focusedCard() || activeCards(1)[0];
-  return `
-    <section class="os-shell">
-      <header class="os-header">
-        <div>
-          <p class="micro">Mini App 10 / not chat</p>
-          <h1>${escapeHtml(concept.name)}</h1>
-          <p>${escapeHtml(concept.line)}</p>
-        </div>
-        <button data-action="generate" class="os-scan">Scan for 10</button>
-      </header>
-      <div class="os-grid">
-        <article class="os-card permission">
-          <span>permission boundary</span>
-          <strong>Private work first. Ask before visible side effects.</strong>
-          <p>Buttons feel instant here, then sync to the backend when Telegram auth and writes are available.</p>
-        </article>
-        <article class="os-card cadence">
-          <span>cadence</span>
-          <strong>${state.me?.settings?.cadence || "On demand + scheduled goals"}</strong>
-          <button data-action="autopilot">Start private work</button>
-        </article>
-        <article class="os-card stats">
-          <span>momentum</span>
-          <div class="stat-row"><strong>${activeCards(100).length}</strong><small>open</small></div>
-          <div class="stat-row"><strong>${localActivity().length}</strong><small>local taps</small></div>
-        </article>
-        <article class="os-card focus">
-          ${focus ? renderFocusPanel(focus, "Approve") : emptyPanel()}
-        </article>
-        <article class="os-card goal-list">
-          <span>goals</span>
-          ${grouped.map(([key, items]) => `
-            <button data-action="focus" data-card-id="${items[0]?.id || ""}">
-              <i style="background:${categoryMeta({ category: key }).color}"></i>
-              ${escapeHtml(categoryMeta({ category: key }).label)}
-              <b>${items.length}</b>
-            </button>
-          `).join("")}
-        </article>
-      </div>
-    </section>
-  `;
-}
-
-function renderFocusPanel(card, cta) {
-  return `
-    ${renderVisual(card, "focus-visual")}
-    <span>${escapeHtml(categoryMeta(card).label)} / ${escapeHtml(sourceName(card))}</span>
-    <h2>${escapeHtml(card.title)}</h2>
-    <p>${escapeHtml(card.why)}</p>
-    <div class="focus-actions">
-      ${variantButtons(card)}
-      ${actionButton("start", card, cta, "primary")}
-      ${actionButton("skip", card, "Skip", "dark")}
-      ${actionButton("remix", card, "Remix", "glass")}
-    </div>
-  `;
-}
-
-function renderVisual(card, className = "") {
-  const visual = card.visual || {};
-  if (visual.kind === "image" && visual.src) {
-    return `<figure class="card-visual ${className}"><img src="${escapeAttr(visual.src)}" alt="" loading="lazy" /></figure>`;
+function renderMedia(card, forcePoster = false) {
+  const visual = forcePoster ? { kind: "none" } : card.visual || {};
+  if (visual.kind === "video" && visual.src) {
+    return `
+      <figure class="card-media video-media">
+        <video src="${escapeAttr(visual.src)}" autoplay loop muted playsinline></video>
+      </figure>
+    `;
   }
-  const lines = String(card.image_text || card.title || "BUX\ncard").split(/\n+/).filter(Boolean);
-  const top = lines[0] || categoryMeta(card).label;
-  const bottom = lines.slice(1).join(" ") || clip(card.title, 24);
+  if (visual.kind === "image" && visual.src) {
+    return `
+      <figure class="card-media image-media">
+        <img src="${escapeAttr(visual.src)}" alt="" loading="lazy" />
+      </figure>
+    `;
+  }
+  const meta = categoryMeta(card);
+  const lines = String(card.image_text || "").split(/\n+/).filter(Boolean);
+  const top = lines[0] || meta.label;
+  const bottom = lines.slice(1).join(" ") || sourceName(card);
   return `
-    <figure class="card-visual visual-fallback ${className}" style="--visual:${categoryMeta(card).color}">
-      <span>${escapeHtml(categoryMeta(card).short)}</span>
+    <figure class="card-media poster-media">
+      <span>${escapeHtml(meta.short)}</span>
       <strong>${escapeHtml(top)}</strong>
       <small>${escapeHtml(bottom)}</small>
     </figure>
   `;
 }
 
-function variantButtons(card) {
-  return cardButtons(card).slice(0, 3).map((item, index) => `
-    <button class="variant ${selectedIndex(card) === index ? "active" : ""}" data-action="variant" data-card-id="${card.id}" data-index="${index}">
-      ${escapeHtml(item.text)}
-    </button>
-  `).join("");
+function renderSummaryPanel(card, concept) {
+  const title = concept.id === 8 ? clip(card.title, 62) : card.title;
+  const titleClass = String(title).length > 42 ? " title-long" : "";
+  return `
+    <section class="info-panel summary-panel${titleClass}">
+      <p>${escapeHtml(categoryMeta(card).label)} / ${escapeHtml(sourceName(card))}</p>
+      <h2>${escapeHtml(title)}</h2>
+      <div class="why">${escapeHtml(clip(card.why, concept.id === 1 ? 150 : 190))}</div>
+    </section>
+  `;
 }
 
-function actionButton(action, card, label, style = "") {
-  const id = card?.id || "";
-  return `<button class="action ${action} ${style}" data-action="${action}" data-card-id="${id}" ${id ? "" : "disabled"}>${escapeHtml(label || action)}</button>`;
+function renderContextPanel(card) {
+  const block = card.blocks?.[0];
+  const body = block?.body || card.action || card.why || "No extra context on this card yet.";
+  return `
+    <section class="info-panel context-panel">
+      <p>Context</p>
+      <h2>${escapeHtml(block?.title || "What the agent knows")}</h2>
+      <div class="body-copy">${escapeHtml(clip(body, 420))}</div>
+    </section>
+  `;
+}
+
+function renderDraftsPanel(card) {
+  const blocks = Array.isArray(card.blocks) && card.blocks.length ? card.blocks : [
+    { title: "Draft action", body: card.action || "The agent should produce the concrete artifact after you tap a button." },
+  ];
+  return `
+    <section class="info-panel drafts-panel">
+      <p>Drafts / variants</p>
+      <div class="draft-stack">
+        ${blocks.slice(0, 4).map((block, index) => `
+          <article>
+            <span>${index + 1}</span>
+            <strong>${escapeHtml(block.title || `Option ${index + 1}`)}</strong>
+            <small>${escapeHtml(clip(block.body || "", 130))}</small>
+          </article>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderFeedbackPanel(card) {
+  return `
+    <section class="info-panel feedback-panel">
+      <p>Feedback</p>
+      <h2>Make the next card better.</h2>
+      <div class="feedback-grid">
+        ${["Too vague", "Need image", "Wrong goal", "More concrete"].map((label) => `
+          <button data-action="quick-note" data-card-id="${card.id}" data-note="${escapeAttr(label)}">${escapeHtml(label)}</button>
+        `).join("")}
+        <button class="voice-wide" data-action="voice" data-card-id="${card.id}">Voice note</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderDecisionDock(card, concept) {
+  const buttons = cardButtons(card);
+  const selected = buttons[selectedIndex(card)] || buttons[0];
+  const alternates = buttons.filter((_, index) => index !== selectedIndex(card)).slice(0, 3);
+  const primaryLabel = concept.id === 8 ? "Do it" : selected.text;
+  const longActions = [primaryLabel, ...alternates.map((item) => item.text)].some((label) => String(label).length > 24);
+  return `
+    <footer class="decision-dock ${longActions ? "long-actions" : ""}">
+      <button class="primary-decision" data-action="start" data-card-id="${card.id}">
+        <span>${escapeHtml(primaryLabel)}</span>
+      </button>
+      <div class="secondary-decisions">
+        ${alternates.map((item, index) => `
+          <button data-action="variant" data-card-id="${card.id}" data-index="${buttons.indexOf(item)}">${escapeHtml(item.text)}</button>
+        `).join("")}
+        <button data-action="context" data-card-id="${card.id}">Add context</button>
+      </div>
+    </footer>
+  `;
+}
+
+function renderSideRail(card, index, concept) {
+  return `
+    <aside class="side-rail">
+      <button data-action="panel" data-panel="context" data-card-id="${card.id}">
+        <strong>${String(index + 1).padStart(2, "0")}</strong>
+        <span>Context</span>
+      </button>
+      <button data-action="panel" data-panel="drafts" data-card-id="${card.id}">
+        <strong>${Array.isArray(card.blocks) ? card.blocks.length : 0}</strong>
+        <span>Drafts</span>
+      </button>
+      <button data-action="voice" data-card-id="${card.id}">
+        <strong>mic</strong>
+        <span>Voice</span>
+      </button>
+      <button data-action="skip" data-card-id="${card.id}">
+        <strong>${concept.id === 6 ? `+${Math.max(5, pointsFor(card) / 4)}` : "skip"}</strong>
+        <span>Skip</span>
+      </button>
+    </aside>
+  `;
+}
+
+function renderStoryRail(cards) {
+  const groups = Object.entries(groupByCategory()).slice(0, 8);
+  return `
+    <div class="story-rail">
+      ${groups.map(([key, items]) => `
+        <button style="--accent:${categoryMeta({ category: key }).color}" data-action="focus" data-card-id="${items[0]?.id || ""}">
+          <span>${escapeHtml(categoryMeta({ category: key }).short)}</span>
+          <strong>${escapeHtml(categoryMeta({ category: key }).label)}</strong>
+          <small>${items.length}</small>
+        </button>
+      `).join("") || cards.slice(0, 5).map((card) => `
+        <button style="--accent:${categoryMeta(card).color}" data-action="focus" data-card-id="${card.id}">
+          <span>${escapeHtml(categoryMeta(card).short)}</span>
+          <strong>${escapeHtml(sourceName(card))}</strong>
+          <small>1</small>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderGoalMap(cards) {
+  const groups = Object.entries(groupByCategory()).slice(0, 7);
+  return `
+    <aside class="goal-map">
+      <p>Open goal sectors</p>
+      <div>
+        ${groups.map(([key, items], index) => `
+          <button class="sector sector-${index + 1}" style="--accent:${categoryMeta({ category: key }).color}" data-action="focus" data-card-id="${items[0]?.id || ""}">
+            <span>${escapeHtml(categoryMeta({ category: key }).short)}</span>
+            <strong>${items.length}</strong>
+          </button>
+        `).join("")}
+      </div>
+      <small>${cards.length} cards on deck</small>
+    </aside>
+  `;
+}
+
+function renderCardSector(card, index) {
+  const meta = categoryMeta(card);
+  return `
+    <div class="card-sector">
+      <span style="background:${meta.color}">${escapeHtml(meta.short)}</span>
+      <strong>sector ${index + 1}</strong>
+    </div>
+  `;
+}
+
+function renderOpsStrip(cards) {
+  return `
+    <aside class="ops-strip">
+      <article><span>Open</span><strong>${state.stats.open || activeCards(100).length}</strong></article>
+      <article><span>Points</span><strong>${state.local.points || 0}</strong></article>
+      <article><span>Sectors</span><strong>${Object.keys(groupByCategory()).length}</strong></article>
+      <button data-action="generate">Generate 10</button>
+    </aside>
+  `;
+}
+
+function panelFor(card) {
+  const value = state.local.panels[String(card.id)] || "summary";
+  return PANEL_ORDER.includes(value) ? value : "summary";
+}
+
+function panelLabel(panel, card) {
+  if (panel === "drafts") return Array.isArray(card.blocks) && card.blocks.length ? `Drafts ${card.blocks.length}` : "Action";
+  if (panel === "feedback") return "Tune";
+  return panel[0].toUpperCase() + panel.slice(1);
 }
 
 function activeCards(limit = 100) {
@@ -945,16 +779,12 @@ function selectedIndex(card) {
   return Math.max(0, Math.min(total - 1, raw));
 }
 
-function selectedLabel(card) {
-  return cardButtons(card)[selectedIndex(card)]?.text || "Start";
+function cardButtons(card) {
+  return ensureButtons(card?.buttons).map((item) => ({ raw: item, text: buttonText(item) }));
 }
 
 function selectedRaw(card) {
   return cardButtons(card)[selectedIndex(card)]?.raw || "";
-}
-
-function cardButtons(card) {
-  return ensureButtons(card?.buttons).map((item) => ({ raw: item, text: clip(buttonText(item), 24) }));
 }
 
 function buttonText(value) {
@@ -982,6 +812,7 @@ function markDecision(card, status, detail = "") {
     source: sourceName(card),
     at: Date.now(),
   };
+  state.local.points = Number(state.local.points || 0) + (status === "started" ? pointsFor(card) : 5);
   saveLocalState();
   state.focusCardId = activeCards(1)[0]?.id || state.cards[0]?.id || null;
 }
@@ -992,18 +823,9 @@ function localActivity() {
     .sort((a, b) => Number(b.at || 0) - Number(a.at || 0));
 }
 
-function xpScore() {
-  return String(1200 + localActivity().length * 175 + activeCards(100).length * 40).padStart(4, "0");
-}
-
-function spinToNext() {
-  const cards = activeCards(100);
-  if (!cards.length) return null;
-  state.spinIndex = (state.spinIndex + 1) % cards.length;
-  state.focusCardId = cards[state.spinIndex].id;
-  state.local.lastSpin = Date.now();
-  saveLocalState();
-  return cards[state.spinIndex];
+function pointsFor(card) {
+  const base = card.importance === "high" ? 120 : card.importance === "low" ? 40 : 80;
+  return base + Math.min(40, cardButtons(card).length * 10);
 }
 
 function remixCard(card) {
@@ -1028,28 +850,8 @@ function remixCard(card) {
   state.cards = mergeCards(state.cards.filter((item) => !item.demo || !String(item.id).startsWith("demo-")));
   state.focusCardId = copy.id;
   haptic("success");
-  toast("New local idea generated.");
+  toast("New local variant generated.");
   render();
-}
-
-function radarPosition(index, card) {
-  const seed = Array.from(String(card.id)).reduce((sum, char) => sum + char.charCodeAt(0), index * 17);
-  const angle = ((seed * 47) % 360) * (Math.PI / 180);
-  const radius = 18 + ((seed * 19) % 34);
-  return {
-    x: Math.round(50 + Math.cos(angle) * radius),
-    y: Math.round(50 + Math.sin(angle) * radius),
-  };
-}
-
-function relative(ts) {
-  const value = Number(ts || 0);
-  if (!value) return "now";
-  const minutes = Math.max(1, Math.round((Date.now() / 1000 - value) / 60));
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 48) return `${hours}h`;
-  return `${Math.round(hours / 24)}d`;
 }
 
 function clip(value, limit) {
@@ -1087,7 +889,47 @@ function haptic(kind = "light") {
 }
 
 function emptyPanel() {
-  return `<article class="empty-panel"><strong>No cards yet</strong><p>Spin, generate, or connect a tool to fill this prototype.</p></article>`;
+  return `<article class="empty-panel"><strong>No cards yet</strong><p>Generate cards or connect a tool to fill this reel with real work.</p></article>`;
+}
+
+function saveNote(card, note) {
+  state.local.notes[String(card.id)] = [...(state.local.notes[String(card.id)] || []), note];
+  saveLocalState();
+}
+
+function addContext(card) {
+  const comment = window.prompt("What should the agent change?", "Make this more concrete.");
+  if (!comment?.trim()) return;
+  saveNote(card, comment.trim());
+  haptic("success");
+  toast("Context saved.");
+  syncComment(card, comment.trim());
+}
+
+function addVoiceNote(card) {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    const comment = window.prompt("Voice fallback: what should the agent know?");
+    if (!comment?.trim()) return;
+    saveNote(card, `Voice note: ${comment.trim()}`);
+    syncComment(card, comment.trim());
+    toast("Voice note saved.");
+    return;
+  }
+  const recognition = new SpeechRecognition();
+  recognition.lang = "en-US";
+  recognition.interimResults = false;
+  recognition.onresult = (event) => {
+    const text = event.results?.[0]?.[0]?.transcript || "";
+    if (text.trim()) {
+      saveNote(card, `Voice note: ${text.trim()}`);
+      syncComment(card, text.trim());
+      toast("Voice note saved.");
+    }
+  };
+  recognition.onerror = () => toast("Voice capture failed.");
+  recognition.start();
+  toast("Listening...");
 }
 
 function syncStart(card) {
@@ -1126,11 +968,27 @@ app.addEventListener("click", (event) => {
     state.focusCardId = card.id;
     haptic("selectionChanged");
     render();
+    document.querySelector(`[data-card-id="${CSS.escape(String(card.id))}"]`)?.scrollIntoView({ block: "center" });
+    return;
+  }
+  if (action === "toggle-media" && card) {
+    const key = String(card.id);
+    state.local.mediaOnly[key] = !state.local.mediaOnly[key];
+    saveLocalState();
+    haptic("light");
+    render();
+    return;
+  }
+  if (action === "panel" && card) {
+    state.local.mediaOnly[String(card.id)] = false;
+    state.local.panels[String(card.id)] = target.dataset.panel || "summary";
+    saveLocalState();
+    haptic("selectionChanged");
+    render();
     return;
   }
   if (action === "variant" && card) {
     state.selected[String(card.id)] = Number(target.dataset.index || 0);
-    state.focusCardId = card.id;
     haptic("selectionChanged");
     render();
     return;
@@ -1138,7 +996,7 @@ app.addEventListener("click", (event) => {
   if (action === "start" && card) {
     markDecision(card, "started", selectedRaw(card));
     haptic("success");
-    toast(`Started: ${selectedLabel(card)}`);
+    toast(`Started: ${buttonText(selectedRaw(card))}`);
     render();
     syncStart(card);
     return;
@@ -1146,53 +1004,34 @@ app.addEventListener("click", (event) => {
   if (action === "skip" && card) {
     markDecision(card, "skipped", "skip");
     haptic("medium");
-    toast("Skipped. Next card loaded.");
+    toast("Skipped. Scroll or keep tapping.");
     render();
     syncSkip(card);
     return;
   }
   if (action === "context" && card) {
-    const comment = window.prompt("What should the agent optimize for?", "Make it more concrete and visual.");
-    if (!comment?.trim()) return;
-    state.local.notes[String(card.id)] = [...(state.local.notes[String(card.id)] || []), comment.trim()];
-    saveLocalState();
+    addContext(card);
+    return;
+  }
+  if (action === "voice" && card) {
+    addVoiceNote(card);
+    return;
+  }
+  if (action === "quick-note" && card) {
+    const note = target.dataset.note || "Feedback";
+    saveNote(card, note);
     haptic("success");
-    toast("Tuning note saved.");
-    syncComment(card, comment.trim());
+    toast(`Saved: ${note}`);
+    syncComment(card, note);
     return;
   }
   if (action === "remix") {
-    remixCard(card);
-    return;
-  }
-  if (action === "spin" || action === "spin-global") {
-    const next = spinToNext();
-    haptic("heavy");
-    toast(next ? `Spun: ${clip(next.title, 42)}` : "No cards to spin.");
-    render();
-    return;
-  }
-  if (action === "spin-wheel") {
-    state.wheelTurns += 1;
-    const next = spinToNext();
-    haptic("heavy");
-    toast(next ? `Wheel picked: ${clip(next.title, 42)}` : "No cards to spin.");
-    render();
+    remixCard(card || focusedCard());
     return;
   }
   if (action === "generate") {
     remixCard(focusedCard());
-    if (initData) {
-      api("/api/generate", { method: "POST", body: "{}" }).catch(() => {});
-    }
-    return;
-  }
-  if (action === "autopilot") {
-    haptic("success");
-    toast("Private work staged.");
-    if (initData) {
-      api("/api/autopilot", { method: "POST", body: "{}" }).catch(() => {});
-    }
+    if (initData) api("/api/generate", { method: "POST", body: "{}" }).catch(() => {});
   }
 });
 
