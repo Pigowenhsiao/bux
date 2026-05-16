@@ -15,60 +15,30 @@ if (params.get("dev") === "1") localStorage.buxMiniAppDev = "1";
 const initData = tg?.initData || (localStorage.buxMiniAppDev === "1" ? "dev" : "");
 const app = document.querySelector("#app");
 const toastEl = document.querySelector("#toast");
-const STORE_KEY = "buxMiniAppConceptLab:v5";
-const CONCEPT_COUNT = 50;
+const STORE_KEY = "buxMiniAppConceptLab:v6";
+const CONCEPT_COUNT = 20;
 
 const CONCEPTS = [
-  ["image-reel", "TikTok Clean", "reel", "Image first, no title burned into the media, decisions below the image."],
-  ["x-feed", "X Timeline", "timeline", "A social feed: avatar, source, media, reply-style actions, no poster overlay."],
-  ["story-stack", "Story Cards", "stories", "Tap through full-screen story cards with captions in a separate tray."],
-  ["swipe-deck", "Swipe Deck", "deck", "Tinder-style decision stack with one big primary action and quick rejects."],
-  ["pin-board", "Pinterest Board", "board", "A visual idea board for quickly scanning many agent suggestions."],
-  ["wallet-pass", "Wallet Passes", "wallet", "Each card becomes a pass with clear source, benefit, and one large button."],
-  ["chat-agent", "Agent Chat", "chat", "A chat-like mini app, but the answer cards stay tappable and structured."],
-  ["kanban-lanes", "Kanban Lanes", "kanban", "Cards grouped into goal lanes, useful for comparing open work."],
-  ["email-client", "Mail Triage", "mail", "Looks like an inbox with a clean reading pane and big reply actions."],
-  ["command-center", "Command Center", "command", "Dashboard stats plus a concrete action queue, not a chatbot."],
-  ["magazine-cover", "Magazine Cover", "magazine", "Editorial cover card with image and action story separated."],
-  ["photo-grid", "Photo Grid", "gallery", "Instagram-like visual grid with a selected card below."],
-  ["daily-checklist", "Daily Checklist", "checklist", "A simple task list for users who want to clear cards fast."],
-  ["calendar-day", "Calendar Day", "calendar", "Cards placed into a day timeline with prep and follow-up slots."],
-  ["slot-picker", "Slot Picker", "arcade", "A real slot-machine metaphor for spinning to the next concrete idea."],
-  ["split-screen", "Split Screen", "split", "Big media panel, separate written brief, buttons locked to the bottom."],
-  ["paper-stack", "Paper Stack", "stack", "Physical paper cards with strong hierarchy and no media background text."],
-  ["voice-feed", "Voice Feed", "voice", "Optimized for spoken feedback and listening through agent proposals."],
-  ["dense-queue", "Dense Queue", "compact", "A compact operator list for clearing twenty cards without drama."],
-  ["metric-table", "Metric Table", "table", "Cards as rows with impact, source, and action columns."],
-  ["coach-card", "Coach Card", "coach", "The agent acts like a decision coach with next move, risk, and evidence."],
-  ["notion-doc", "Notion Doc", "doc", "A calm workspace page with blocks, references, and buttons at the end."],
-  ["reddit-feed", "Reddit Feed", "forum", "Discussion-card layout for context-heavy suggestions and comments."],
-  ["linear-list", "Linear List", "linear", "Issue-tracker style with priority, status, owner, and action."],
-  ["spotify-queue", "Spotify Queue", "playlist", "Cards become a queue with cover art and one-tap play/start."],
-  ["duo-quest", "Quest Ladder", "quest", "Gamified ladder for earning momentum through small accepted actions."],
-  ["shopping-shelf", "Action Shop", "shop", "A product shelf where each card is something the agent can do for you."],
-  ["news-brief", "News Brief", "brief", "Morning-news style brief with headline, why it matters, and action."],
-  ["focus-mode", "Focus Mode", "focus", "One quiet card, huge whitespace, no visual noise, built for trust."],
-  ["broadcast", "Broadcast Desk", "broadcast", "Cards as dispatches the user can approve, edit, or hold."],
-  ["customer-crm", "Customer CRM", "crm", "Pipeline layout for customer risks, leads, and follow-ups."],
-  ["terminal-panel", "Terminal Panel", "terminal", "Operator console for technical users, with natural-language buttons."],
-  ["comic-strip", "Comic Strip", "comic", "Three-panel narrative: problem, agent work, user decision."],
-  ["roadmap", "Roadmap", "roadmap", "Goal sectors as a roadmap, not a radar: clear lanes and named cards."],
-  ["habit-loop", "Habit Loop", "habit", "Recurring-agent cards with cadence, streak, and next fire time."],
-  ["marketplace", "Agent Store", "market", "Suggestions feel like installable mini skills with previews."],
-  ["one-button", "One Button", "onebutton", "Ultra-simple: one card, one giant accept button, optional details."],
-  ["draft-studio", "Draft Studio", "draft", "Best for cards with multiple draft messages or reply variants."],
-  ["team-room", "Team Room", "team", "People-first view for who needs the user and who can be unblocked."],
-  ["mapless-goals", "Goal Shelves", "shelves", "A category overview without radar: shelves with labeled cards."],
-  ["receipt", "Receipt", "receipt", "A literal receipt of what the agent checked and what it wants to do."],
-  ["auction", "Auction", "auction", "Cards compete for attention with value, urgency, and cost."],
-  ["launch-board", "Launch Board", "launch", "Launch-specific layout for copy, assets, reactions, and follow-ups."],
-  ["calm-letter", "Calm Letter", "letter", "A beautiful letter-style proposal with explicit approval actions."],
-  ["mission-control", "Mission Control", "mission", "Space-command metaphor with status, telemetry, and action queue."],
-  ["sports-card", "Sports Card", "sports", "Collectible cards for opportunities, with stats and moves."],
-  ["receipt-feed", "Proof Feed", "proof", "Shows evidence first, then the agent's proposed action."],
-  ["split-deck", "Split Deck", "splitdeck", "Left-right comparison between two possible actions."],
-  ["tile-os", "Tile OS", "tiles", "Home-screen tiles for agent work, good for quick scanning."],
-  ["concierge", "Concierge", "concierge", "Premium assistant desk: request, context, confirmation."],
+  ["scroll-reel", "Scroll Reel", "reel", "TikTok-style card loop: text below media, buttons below text, no overlays."],
+  ["x-feed", "X Feed", "timeline", "A social feed for quick scanning many agent suggestions."],
+  ["story-stack", "Story Stack", "stories", "Tap-card previews with one full card in focus."],
+  ["swipe-deck", "Swipe Deck", "deck", "Tinder-style decision stack with the action dock outside the card."],
+  ["pin-board", "Pin Board", "board", "A fast visual board for comparing many cards at once."],
+  ["wallet-pass", "Wallet Pass", "wallet", "Stacked passes with clear title, source, and approval controls."],
+  ["chat-cards", "Big Chat Cards", "chat", "The v7 direction: big card heading, small explanation, chat-like flow."],
+  ["goal-lanes", "Goal Lanes", "kanban", "Grouped cards for seeing which goals have open agent work."],
+  ["mail-triage", "Mail Triage", "mail", "The v9 direction: clean list preview plus one readable detail card."],
+  ["command-center", "Command Center", "command", "Stats and a concrete queue without turning into a chatbot."],
+  ["magazine-card", "Magazine Card", "magazine", "Editorial card treatment with copy and controls separated."],
+  ["photo-grid", "Photo Grid", "gallery", "Thumbnail overview with a selected action card below."],
+  ["checklist", "Checklist", "checklist", "A simple list for clearing cards quickly."],
+  ["calendar-stack", "Calendar Stack", "calendar", "Cards arranged like a day plan with one-tap decisions."],
+  ["slot-picker", "Slot Picker", "arcade", "A playful picker for spinning through possible agent actions."],
+  ["split-brief", "Split Brief", "split", "Separate evidence/context from the final decision controls."],
+  ["paper-stack", "Paper Stack", "stack", "Physical cards with strong hierarchy and no media text."],
+  ["voice-card", "Voice Card", "voice", "Optimized for quick spoken feedback on a suggested action."],
+  ["dense-queue", "Dense Queue", "compact", "Compact operator list for rapidly clearing many cards."],
+  ["coach-card", "Coach Card", "coach", "A decision coach card with why, evidence, and a clear next move."],
 ].map(([slug, name, layout, line], index) => ({
   id: index + 1,
   slug,
@@ -428,8 +398,8 @@ function renderHub() {
   return `
     <section class="hub-hero">
       <p class="eyebrow">bux concept lab</p>
-      <h1>50 Mini App directions.</h1>
-      <p>No shared card shell. Each route tests a different interaction model for accepting, skipping, expanding, and improving agent work.</p>
+      <h1>20 Mini App directions.</h1>
+      <p>Twenty tested interaction models for accepting, skipping, expanding, and improving agent work.</p>
       <div class="hub-stats">
         <span>${state.cards.length} cards loaded</span>
         <span>${Object.keys(groupByCategory()).length} source groups</span>
@@ -453,7 +423,7 @@ function renderLabNav(concept) {
   const next = concept.id === CONCEPT_COUNT ? 1 : concept.id + 1;
   return `
     <nav class="lab-nav" aria-label="Mini App concepts">
-      <a class="lab-home" href="${hubPath()}">All 50</a>
+      <a class="lab-home" href="${hubPath()}">All 20</a>
       <a href="${conceptPath(prev)}">Prev ${prev}</a>
       <span>${concept.id} / ${CONCEPT_COUNT}</span>
       <a href="${conceptPath(next)}">Next ${next}</a>
@@ -465,6 +435,7 @@ function renderLabNav(concept) {
 function renderConcept(concept) {
   const cards = activeCards(18);
   const card = focusedCard(cards);
+  const ordered = prioritizeCard(cards, card);
   const renderer = LAYOUTS[concept.layout] || renderGeneric;
   return `
     <section class="concept-screen" style="--accent:${concept.accent}">
@@ -473,8 +444,27 @@ function renderConcept(concept) {
         <h1>${escapeHtml(concept.name)}</h1>
         <p>${escapeHtml(concept.line)}</p>
       </header>
-      ${renderer(concept, cards, card)}
+      ${renderPreviewStrip(ordered, card)}
+      ${renderer(concept, ordered, card)}
     </section>
+  `;
+}
+
+function renderPreviewStrip(cards, card) {
+  const visible = cards.slice(0, 10);
+  return `
+    <nav class="card-preview" aria-label="Card previews">
+      <button class="card-step" data-action="focus-prev" type="button">Prev card</button>
+      <div class="preview-track">
+        ${visible.map((item, index) => `
+          <button class="${String(item.id) === String(card.id) ? "active" : ""}" data-action="focus" data-card-id="${item.id}" type="button" aria-pressed="${String(item.id) === String(card.id)}">
+            <span>${index + 1}</span>
+            <strong>${escapeHtml(clip(item.title, 42))}</strong>
+          </button>
+        `).join("")}
+      </div>
+      <button class="card-step" data-action="focus-next" type="button">Next card</button>
+    </nav>
   `;
 }
 
@@ -1310,6 +1300,11 @@ function focusedCard(cards = activeCards(18)) {
   return cards.find((card) => String(card.id) === String(state.focusCardId)) || cards[0] || state.cards[0] || DEMO_CARDS[0];
 }
 
+function prioritizeCard(cards, card) {
+  if (!card) return cards;
+  return [card, ...cards.filter((item) => String(item.id) !== String(card.id))];
+}
+
 function groupedCards(cards = activeCards(100)) {
   return Object.entries(cards.reduce((acc, card) => {
     const key = card.category || inferCategory(card);
@@ -1530,6 +1525,20 @@ app.addEventListener("click", (event) => {
   const cardId = target.dataset.cardId;
   const card = state.cards.find((item) => String(item.id) === String(cardId));
 
+  if (action === "focus-next" || action === "focus-prev") {
+    const cards = activeCards(100);
+    if (!cards.length) return;
+    const current = cards.findIndex((item) => String(item.id) === String(state.focusCardId));
+    const fallback = current >= 0 ? current : 0;
+    const direction = action === "focus-next" ? 1 : -1;
+    const next = cards[(fallback + direction + cards.length) % cards.length];
+    if (next) {
+      state.focusCardId = next.id;
+      haptic("selectionChanged");
+      render();
+    }
+    return;
+  }
   if (action === "focus" && card) {
     state.focusCardId = card.id;
     haptic("selectionChanged");

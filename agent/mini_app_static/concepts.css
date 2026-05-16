@@ -236,6 +236,77 @@ h2 {
   font-size: 12px;
 }
 
+.card-preview {
+  max-width: 760px;
+  margin: 0 auto 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.preview-track {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.preview-track::-webkit-scrollbar {
+  display: none;
+}
+
+.card-preview button {
+  border: 1px solid rgba(23, 23, 23, 0.10);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #171717;
+  box-shadow: 0 12px 30px rgba(28, 25, 23, 0.10);
+}
+
+.card-step {
+  min-width: 74px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.preview-track button {
+  flex: 0 0 150px;
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  scroll-snap-align: start;
+  text-align: left;
+}
+
+.preview-track button.active {
+  background: #111;
+  color: #fff;
+}
+
+.preview-track span {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #111;
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.preview-track strong {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.08;
+}
+
 .concept-card {
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
@@ -437,6 +508,16 @@ h2 {
   color: #312e2a;
 }
 
+.story-stage .utility-buttons button,
+.arcade-shell .utility-buttons button,
+.command-main .utility-buttons button,
+.terminal-shell .utility-buttons button,
+.playlist-shell .utility-buttons button {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
 .mini-actions button:first-child {
   background: #111;
   color: #fff;
@@ -463,7 +544,8 @@ h2 {
 }
 
 .reel-stream {
-  height: calc(100dvh - 168px);
+  height: calc(100dvh - 236px);
+  min-height: 520px;
   overflow-y: auto;
   scroll-snap-type: y mandatory;
   display: grid;
@@ -565,7 +647,9 @@ h2 {
   display: none;
 }
 
+.deck-visual.no-media,
 .pin-visual.no-media,
+.mag-cover.no-media,
 .split-visual.no-media,
 .command-visual.no-media,
 .album-art.no-media,
@@ -643,16 +727,17 @@ h2 {
   position: absolute;
   inset: 0 0 128px;
   display: grid;
-  grid-template-rows: 58% auto;
+  grid-template-rows: minmax(0, 46%) auto;
   gap: 12px;
   padding: 14px;
   border-radius: 38px;
   background: white;
+  overflow: hidden;
   transform: translateY(calc(var(--stack) * 12px)) scale(calc(1 - var(--stack) * 0.035));
 }
 
 .deck-visual {
-  min-height: 320px;
+  min-height: 230px;
 }
 
 .swipe-card section {
@@ -661,7 +746,7 @@ h2 {
 }
 
 .swipe-card h2 {
-  font-size: 36px;
+  font-size: 28px;
 }
 
 .deck-actions {
@@ -1520,6 +1605,20 @@ h2 {
     padding-top: 66px;
   }
 
+  .card-preview {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .card-step {
+    display: none;
+  }
+
+  .preview-track button {
+    flex-basis: 132px;
+    min-height: 52px;
+  }
+
   .concept-title h1 {
     font-size: 18px;
   }
@@ -1533,8 +1632,8 @@ h2 {
   }
 
   .phone-reel {
-    min-height: calc(100dvh - 98px);
-    grid-template-rows: minmax(250px, 46vh) auto auto;
+    min-height: calc(100dvh - 218px);
+    grid-template-rows: minmax(190px, 34vh) auto auto;
   }
 
   .phone-reel.no-visual-card {
@@ -1566,6 +1665,19 @@ h2 {
     grid-template-columns: 1fr;
   }
 
+  .kanban-board,
+  .crm-pipeline,
+  .roadmap-shell {
+    grid-template-columns: 1fr;
+    overflow-x: visible;
+  }
+
+  .kanban-board section,
+  .crm-pipeline section,
+  .roadmap-shell section {
+    min-height: auto;
+  }
+
   .stat-card,
   .command-main,
   .command-queue {
@@ -1573,6 +1685,7 @@ h2 {
   }
 
   .command-main {
+    order: -1;
     grid-template-columns: 1fr;
   }
 
@@ -1587,11 +1700,11 @@ h2 {
   }
 
   .deck-shell {
-    min-height: 620px;
+    min-height: 560px;
   }
 
   .swipe-card {
-    inset: 0 0 136px;
+    inset: 0 0 146px;
   }
 
   .table-head {
