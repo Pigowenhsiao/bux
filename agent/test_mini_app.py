@@ -114,6 +114,8 @@ class MiniAppTest(unittest.TestCase):
             sorted(card["id"] for card in second if str(card["source"]).startswith("miniapp-")),
         )
         self.assertTrue(starter_cards[0]["buttons"])
+        self.assertGreater(len(starter_cards[0]["buttons"]), 1)
+        self.assertTrue(starter_cards[0]["blocks"])
         self.assertEqual(starter_cards[0]["visual"]["kind"], "none")
         self.assertTrue(all(card["source_label"] == "Starter goal" for card in starter_cards))
 
@@ -272,7 +274,7 @@ class MiniAppTest(unittest.TestCase):
         self.assertIn("dismissed:", prompt)
         self.assertIn("Start generic Slack monitor", prompt)
 
-    def test_start_dispatch_creates_worker_topic_by_default(self) -> None:
+    def test_start_dispatch_uses_existing_goal_topic(self) -> None:
         calls: list[tuple[str, dict]] = []
         runs: list[tuple[tuple[int, int], str]] = []
 
@@ -315,11 +317,10 @@ class MiniAppTest(unittest.TestCase):
             time.sleep(0.02)
 
         self.assertTrue(result["started"])
-        self.assertTrue(result["topic_created"])
-        self.assertEqual(result["thread_id"], 777)
-        self.assertEqual(calls[0][0], "createForumTopic")
-        self.assertEqual(calls[1][0], "sendMessage")
-        self.assertEqual(runs[0][0], (100, 777))
+        self.assertFalse(result["topic_created"])
+        self.assertEqual(result["thread_id"], 123)
+        self.assertEqual(calls[0][0], "sendMessage")
+        self.assertEqual(runs[0][0], (100, 123))
         self.assertIn("The user accepted this Mini App card", runs[0][1])
         self.assertIn("Card title: Start visible work", runs[0][1])
         self.assertIn("Action prompt:\nDo the work", runs[0][1])
@@ -329,7 +330,54 @@ class MiniAppTest(unittest.TestCase):
                 (suggestion_id,),
             ).fetchone()
         self.assertEqual(row["status"], "accepted")
-        self.assertEqual(row["worker_topic_id"], 777)
+        self.assertEqual(row["worker_topic_id"], 123)
+
+    def test_start_dispatch_creates_topic_when_card_has_no_topic(self) -> None:
+        calls: list[tuple[str, dict]] = []
+        runs: list[tuple[tuple[int, int], str]] = []
+
+        class FakeBot:
+            def __init__(self, token: str, setup_token: str) -> None:
+                self.token = token
+                self.setup_token = setup_token
+
+            def call(self, method: str, **params: object) -> dict:
+                calls.append((method, dict(params)))
+                if method == "createForumTopic":
+                    return {"ok": True, "result": {"message_thread_id": 777}}
+                return {"ok": True, "result": {"message_id": 55}}
+
+            def run_task(
+                self,
+                key: tuple[int, int],
+                prompt: str,
+                reply_to: int | None = None,
+                sender: dict | None = None,
+            ) -> None:
+                del reply_to, sender, prompt
+                runs.append((key, ""))
+
+        sys.modules["telegram_bot"] = types.SimpleNamespace(Bot=FakeBot)
+        with self.agency_db.conn() as db:
+            suggestion_id = self.agency_db.insert(
+                db,
+                title="Start new lane",
+                description="",
+                chat_id=100,
+                thread_id=0,
+                prompt="Do the work",
+            )
+
+        result = self.app._start_agent_work(suggestion_id, {"id": 42, "first_name": "Magnus"})
+        deadline = time.time() + 2
+        while not runs and time.time() < deadline:
+            time.sleep(0.02)
+
+        self.assertTrue(result["started"])
+        self.assertTrue(result["topic_created"])
+        self.assertEqual(result["thread_id"], 777)
+        self.assertEqual(calls[0][0], "createForumTopic")
+        self.assertEqual(runs[0][0], (100, 777))
 
     def test_dismiss_api_deletes_original_telegram_card_for_sync(self) -> None:
         calls: list[tuple[str, dict]] = []
@@ -363,6 +411,38 @@ class MiniAppTest(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertTrue(result["synced"])
             self.assertIn(("deleteMessage", {"chat_id": 100, "message_id": 456}), calls)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_comment_api_marks_card_differently_so_it_does_not_reappear(self) -> None:
+        with self.agency_db.conn() as db:
+            suggestion_id = self.agency_db.insert(
+                db,
+                title="Refine me",
+                description="",
+                chat_id=100,
+                thread_id=123,
+                prompt="Do the work",
+            )
+        server = ThreadingHTTPServer(("127.0.0.1", 0), self.app.MiniAppHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        try:
+            result = self._request(
+                f"{base}/api/cards/{suggestion_id}/comment",
+                method="POST",
+                body={"comment": "Make it sharper"},
+            )
+            self.assertTrue(result["ok"])
+            cards = self._request(base + "/api/cards")
+            self.assertEqual(cards["cards"], [])
+            activity = self._request(base + "/api/activity")
+            self.assertEqual(activity["activity"][0]["status"], "differently")
+            with self.agency_db.conn() as db:
+                row = db.execute("SELECT status FROM suggestions WHERE id = ?", (suggestion_id,)).fetchone()
+            self.assertEqual(row["status"], "differently")
         finally:
             server.shutdown()
             server.server_close()
@@ -417,8 +497,8 @@ class MiniAppTest(unittest.TestCase):
             time.sleep(0.02)
 
         self.assertTrue(result["started"])
-        self.assertEqual(bindings, [((100, 777), "codex")])
-        self.assertEqual(runs[0][0], (100, 777))
+        self.assertEqual(bindings, [((100, 123), "codex")])
+        self.assertEqual(runs[0][0], (100, 123))
 
     def test_start_dispatch_custom_button_includes_card_context(self) -> None:
         calls: list[tuple[str, dict]] = []

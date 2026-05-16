@@ -228,6 +228,21 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: Any) -
     handler.wfile.write(data)
 
 
+def _dispatch_json_response(handler: BaseHTTPRequestHandler, dispatched: bool) -> None:
+    if dispatched:
+        _json_response(handler, 200, {"ok": True, "dispatched": True})
+    else:
+        _json_response(
+            handler,
+            409,
+            {
+                "ok": False,
+                "dispatched": False,
+                "error": "No Telegram topic is available for this action.",
+            },
+        )
+
+
 def _text_response(handler: BaseHTTPRequestHandler, status: int, body: bytes, content_type: str) -> None:
     handler.send_response(status)
     handler.send_header("Content-Type", content_type)
@@ -543,7 +558,21 @@ STARTER_IDEAS: list[dict[str, Any]] = [
             "If it is not connected, send the exact next step and keep the explanation short. "
             "Once connected, surface concrete one-tap cards tied to real threads instead of generic inbox advice."
         ),
-        "buttons": ["Set up Gmail"],
+        "buttons": ["Set up Gmail", "Draft inbox replies", "Monitor every 30 min"],
+        "blocks": [
+            {
+                "title": "Set up Gmail",
+                "body": "Send the connection step. Once OAuth is done, verify the integration and replace this with concrete inbox cards.",
+            },
+            {
+                "title": "Draft inbox replies",
+                "body": "After Gmail is connected, find people waiting on the user and prepare short reply drafts as approval cards.",
+            },
+            {
+                "title": "Monitor every 30 minutes",
+                "body": "Create a recurring inbox check that only interrupts for named people or threads that need a real decision.",
+            },
+        ],
         "image_text": "GMAIL\nreply faster",
     },
     {
@@ -556,7 +585,21 @@ STARTER_IDEAS: list[dict[str, Any]] = [
             "If it is not connected, guide the user through the exact next step with no filler. "
             "After setup, keep suggestions tied to named people, channels, or threads."
         ),
-        "buttons": ["Set up Slack"],
+        "buttons": ["Set up Slack", "Find blockers", "Daily digest"],
+        "blocks": [
+            {
+                "title": "Set up Slack",
+                "body": "Send the connection step. Once OAuth is done, verify Slack and replace this with concrete channel, DM, and mention cards.",
+            },
+            {
+                "title": "Find blockers",
+                "body": "After Slack is connected, scan mentions and active channels for people blocked on the user.",
+            },
+            {
+                "title": "Daily digest",
+                "body": "Prepare a recurring Slack brief with only the replies, decisions, and deadlines that matter.",
+            },
+        ],
         "image_text": "SLACK\nclear threads",
     },
     {
@@ -569,7 +612,21 @@ STARTER_IDEAS: list[dict[str, Any]] = [
             "If it is not connected, give the exact connect step and keep it brief. "
             "After setup, prefer cards that unblock shipping, bug fixes, or monitoring."
         ),
-        "buttons": ["Set up GitHub"],
+        "buttons": ["Set up GitHub", "Watch CI", "Review PRs"],
+        "blocks": [
+            {
+                "title": "Set up GitHub",
+                "body": "Send the connection step. Once OAuth is done, verify the repos and replace this with concrete PR and CI cards.",
+            },
+            {
+                "title": "Watch CI",
+                "body": "After GitHub is connected, watch active checks and alert only when a human decision or fix is needed.",
+            },
+            {
+                "title": "Review PRs",
+                "body": "Surface review requests, failing checks, and merge-ready PRs as one-tap action cards.",
+            },
+        ],
         "image_text": "GITHUB\nship faster",
     },
     {
@@ -582,7 +639,17 @@ STARTER_IDEAS: list[dict[str, Any]] = [
             "Inspect concrete context across connected tools and generate cards that improve distribution, activation, retention, or revenue. "
             "Avoid generic growth brainstorming. Name the real person, repo, PR, post, signup, or launch moment."
         ),
-        "buttons": ["Lock goal"],
+        "buttons": ["Lock goal", "Find warm openings"],
+        "blocks": [
+            {
+                "title": "Lock goal",
+                "body": "Save growth as the standing goal, then inspect connected context before posting follow-up cards.",
+            },
+            {
+                "title": "Find warm openings",
+                "body": "Look for named people, signups, messages, launches, and posts that could turn into distribution opportunities.",
+            },
+        ],
         "image_text": "GROWTH\nreal openings",
     },
     {
@@ -595,7 +662,17 @@ STARTER_IDEAS: list[dict[str, Any]] = [
             "Inspect concrete incidents, repos, logs, PRs, metrics, and alerts. "
             "Generate cards that name the exact failing thing, the likely next step, and what the user can approve in one tap."
         ),
-        "buttons": ["Lock goal"],
+        "buttons": ["Lock goal", "Find the next fix"],
+        "blocks": [
+            {
+                "title": "Lock goal",
+                "body": "Save quality and monitoring as the standing goal, then inspect concrete repos, logs, checks, and incidents.",
+            },
+            {
+                "title": "Find the next fix",
+                "body": "Look for failing checks, bug reports, noisy alerts, or regressions that can become one-tap cards.",
+            },
+        ],
         "image_text": "LESS BUGS\nless thinking",
     },
 ]
@@ -629,6 +706,7 @@ def _ensure_starter_cards() -> None:
                 source_label="Starter goal",
                 prompt=str(idea["prompt"]) + STARTER_ACCEPTANCE_SUFFIX,
                 buttons=list(idea.get("buttons") or ["Start this"]),
+                blocks=list(idea.get("blocks") or []),
                 chat_id=chat_id,
                 thread_id=0,
                 spawn_topic=False,
@@ -789,6 +867,9 @@ def _activity(limit: int = 18) -> list[dict[str, Any]]:
         row = dict(raw)
         thread_id = int(row.get("worker_topic_id") or row.get("tg_thread_id") or 0)
         chat_id = int(row.get("tg_chat_id") or 0)
+        source_row = dict(row)
+        if thread_id:
+            source_row["tg_thread_id"] = thread_id
         items.append(
             {
                 "id": int(row["id"]),
@@ -798,7 +879,7 @@ def _activity(limit: int = 18) -> list[dict[str, Any]]:
                 "decision": _clip_text(_clean_mobile_text(row.get("decision") or ""), 40),
                 "source": str(row.get("source") or ""),
                 "source_label": _clip_text(_clean_mobile_text(row.get("source_label") or ""), 28),
-                "source_url": _source_url(row),
+                "source_url": _source_url(source_row),
                 "thread_id": thread_id,
                 "thread_title": _thread_title(
                     {
@@ -1230,7 +1311,7 @@ def _start_agent_prompt(row: dict[str, Any], action_prompt: str, button_label: s
     picked = button_label or "Mini App Start"
     return (
         "The user accepted this Mini App card. Work from the full card context below.\n"
-        "This accepted card is now its own worker session. Complete the task in this session when possible. "
+        "Complete the task in this Telegram goal session when possible. "
         "If you need more user confirmation, post a follow-up Agency card linked to this task instead of asking vaguely. "
         "Do all private/reversible work first and stop only before a visible third-party action.\n\n"
         f"Picked button: {picked}\n"
@@ -1267,26 +1348,12 @@ def _start_agent_work(
         work_thread = int(row.get("worker_topic_id") or 0) or thread_id
         topic_created = False
         topic_name = (row.get("title") or "Mini App task")[:128]
-        if not int(row.get("worker_topic_id") or 0):
+        if not work_thread:
             res = bot.call("createForumTopic", chat_id=chat_id, name=topic_name)
             if res.get("ok"):
                 work_thread = int(res["result"].get("message_thread_id") or thread_id)
                 topic_created = True
                 _upsert_topic(chat_id, work_thread, topic_name, "miniapp-start")
-        provider = (_settings().get("provider") or "").strip().lower()
-        if provider in {"codex", "claude"} and hasattr(telegram_bot, "_set_agent_for"):
-            telegram_bot._set_agent_for((chat_id, work_thread), provider, bot.state)
-        with agency_db.conn() as db:
-            if row.get("tg_chat_id") and row.get("tg_message_id"):
-                agency_db.record_decision(
-                    db,
-                    int(row.get("tg_chat_id") or 0),
-                    int(row.get("tg_message_id") or 0),
-                button_label or "Mini App Start",
-                )
-            agency_db.set_status(db, suggestion_id, "accepted")
-            if work_thread:
-                agency_db.set_worker_topic(db, suggestion_id, work_thread)
         bot.call(
             "sendMessage",
             chat_id=chat_id,
@@ -1298,6 +1365,20 @@ def _start_agent_work(
             ),
             parse_mode="HTML",
         )
+        provider = (_settings().get("provider") or "").strip().lower()
+        if provider in {"codex", "claude"} and hasattr(telegram_bot, "_set_agent_for"):
+            telegram_bot._set_agent_for((chat_id, work_thread), provider, bot.state)
+        with agency_db.conn() as db:
+            if row.get("tg_chat_id") and row.get("tg_message_id"):
+                agency_db.record_decision(
+                    db,
+                    int(row.get("tg_chat_id") or 0),
+                    int(row.get("tg_message_id") or 0),
+                    button_label or "Mini App Start",
+                )
+            agency_db.set_status(db, suggestion_id, "accepted")
+            if work_thread:
+                agency_db.set_worker_topic(db, suggestion_id, work_thread)
 
         def run() -> None:
             try:
@@ -1560,7 +1641,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                         user,
                         heading="Mini App goal context added",
                     )
-                _json_response(self, 200, {"ok": True, "dispatched": dispatched})
+                _dispatch_json_response(self, dispatched)
                 return
             if len(path) == 4 and path[:2] == ["api", "goals"] and path[3] == "generate":
                 goal_id = int(path[2])
@@ -1588,7 +1669,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                         user,
                         heading="Mini App generate more",
                     )
-                _json_response(self, 200, {"ok": True, "dispatched": dispatched})
+                _dispatch_json_response(self, dispatched)
                 return
             if len(path) == 4 and path[:2] == ["api", "goals"] and path[3] == "autopilot":
                 goal_id = int(path[2])
@@ -1611,7 +1692,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                         user,
                         heading="Mini App Autopilot",
                     )
-                _json_response(self, 200, {"ok": True, "dispatched": dispatched})
+                _dispatch_json_response(self, dispatched)
                 return
             if len(path) == 4 and path[:2] == ["api", "topics"] and path[3] == "generate":
                 thread_id = int(path[2])
@@ -1625,7 +1706,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                     user,
                     heading="Mini App generate more",
                 )
-                _json_response(self, 200, {"ok": True, "dispatched": dispatched})
+                _dispatch_json_response(self, dispatched)
                 return
             if len(path) == 4 and path[:2] == ["api", "topics"] and path[3] == "autopilot":
                 thread_id = int(path[2])
@@ -1639,7 +1720,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                     user,
                     heading="Mini App Autopilot",
                 )
-                _json_response(self, 200, {"ok": True, "dispatched": dispatched})
+                _dispatch_json_response(self, dispatched)
                 return
             if parsed.path == "/api/generate":
                 chat_id = _default_chat_id()
@@ -1650,7 +1731,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                     user,
                     heading="Mini App generate more",
                 )
-                _json_response(self, 200, {"ok": True, "dispatched": dispatched})
+                _dispatch_json_response(self, dispatched)
                 return
             if parsed.path == "/api/autopilot":
                 chat_id = _default_chat_id()
@@ -1661,7 +1742,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                     user,
                     heading="Mini App Autopilot",
                 )
-                _json_response(self, 200, {"ok": True, "dispatched": dispatched})
+                _dispatch_json_response(self, dispatched)
                 return
             if len(path) >= 4 and path[:2] == ["api", "cards"]:
                 suggestion_id = int(path[2])
@@ -1687,7 +1768,14 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                         db.commit()
                     _append_event(suggestion_id, "comment", user, comment)
                     dispatched = _dispatch_card_context(row, comment, user)
-                    _json_response(self, 200, {"ok": True, "dispatched": dispatched})
+                    with agency_db.conn() as db:
+                        agency_db.set_status(db, suggestion_id, "differently")
+                    synced = _delete_telegram_card(row)
+                    _json_response(
+                        self,
+                        200,
+                        {"ok": True, "dispatched": dispatched, "synced": synced},
+                    )
                     return
                 if action == "dismiss":
                     with agency_db.conn() as db:

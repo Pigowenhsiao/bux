@@ -8,6 +8,12 @@ const initData = tg?.initData || (localStorage.buxMiniAppDev === "1" ? "dev" : "
 const goalKey = "buxTinderGoalId";
 const indexKey = "buxTinderIndex";
 const variantKey = "buxTinderVariants";
+let savedVariants = {};
+try {
+  savedVariants = JSON.parse(localStorage.getItem(variantKey) || "{}");
+} catch {
+  savedVariants = {};
+}
 
 const state = {
   cards: [],
@@ -21,7 +27,7 @@ const state = {
   index: Number(localStorage.getItem(indexKey) || "0"),
   started: Number(localStorage.getItem("buxTinderStarted") || "0"),
   skipped: Number(localStorage.getItem("buxTinderSkipped") || "0"),
-  variants: JSON.parse(localStorage.getItem(variantKey) || "{}"),
+  variants: savedVariants,
 };
 
 const els = {
@@ -50,6 +56,10 @@ const els = {
   goalSheet: document.querySelector("#goalSheet"),
   goalForm: document.querySelector("#goalForm"),
   goalInput: document.querySelector("#goalInput"),
+  workSheet: document.querySelector("#workSheet"),
+  workForm: document.querySelector("#workForm"),
+  laneSheet: document.querySelector("#laneSheet"),
+  laneList: document.querySelector("#laneList"),
 };
 
 let dragState = null;
@@ -127,8 +137,32 @@ function selectedBlock(card) {
   const blocks = Array.isArray(card.blocks) ? card.blocks : [];
   if (!blocks.length) return null;
   const buttons = cardActionButtons(card);
+  const selected = buttons[selectedVariantIndex(card)];
+  if (selected) {
+    const matched = blockForButton(blocks, selected.text);
+    if (matched) return matched;
+  }
   if (buttons.length === blocks.length) return blocks[selectedVariantIndex(card)] || blocks[0];
   return blocks[0];
+}
+
+function blockForButton(blocks, label) {
+  const needle = normalizeMatch(label);
+  if (!needle) return null;
+  return blocks.find((block) => {
+    const haystack = normalizeMatch(`${block.title || ""} ${block.body || ""}`);
+    if (!haystack) return false;
+    return haystack.includes(needle) || needle.includes(haystack.slice(0, 24));
+  }) || null;
+}
+
+function normalizeMatch(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/^[^a-z0-9]+/g, "")
+    .replace(/\b(option|variant|draft|send|use|post|start|the|this)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function otherBlocks(card) {
@@ -152,7 +186,7 @@ function render() {
 }
 
 function syncGlobalButtons(hasCard) {
-  els.startAction.disabled = !hasCard;
+  els.startAction.disabled = !hasCard || !selectedButton(currentCard());
   els.skipAction.disabled = !hasCard;
   els.context.disabled = !hasCard && state.activeGoalId === "all";
 }
@@ -163,18 +197,23 @@ function renderGoals() {
   els.collapseRail.setAttribute("aria-label", state.railCollapsed ? "Expand side rail" : "Collapse side rail");
   const tabs = goalTabs();
   els.goalCount.textContent = String(tabs.length - 1);
-  const html = tabs.map(goalTabHtml).join("");
-  els.tabs.innerHTML = html;
-  els.mobileGoals.innerHTML = html;
-  [els.tabs, els.mobileGoals].forEach((container) => {
+  const railTabs = prioritizeTabs(tabs).slice(0, 5);
+  els.tabs.innerHTML = railTabs.map(goalTabHtml).join("");
+  els.mobileGoals.innerHTML = activeLaneHtml(tabs);
+  els.laneList.innerHTML = prioritizeTabs(tabs).map(goalTabHtml).join("");
+  [els.tabs, els.laneList].forEach((container) => {
     container.querySelectorAll("[data-goal]").forEach((button) => {
       button.addEventListener("click", () => {
         state.activeGoalId = button.dataset.goal || "all";
         state.index = 0;
         localStorage.setItem(goalKey, state.activeGoalId);
+        els.laneSheet.close();
         render();
       });
     });
+  });
+  els.mobileGoals.querySelector("[data-open-lanes]")?.addEventListener("click", () => {
+    els.laneSheet.showModal();
   });
 }
 
@@ -217,6 +256,26 @@ function goalTabHtml(tab) {
       <span class="goal-count">${tab.count}</span>
     </button>
   `;
+}
+
+function activeLaneHtml(tabs) {
+  const active = tabs.find((tab) => tab.id === state.activeGoalId) || tabs[0];
+  return `
+    <button class="active-lane" data-open-lanes type="button">
+      <span>${escapeHtml(clipLabel(active?.title || "All cards", 28))}</span>
+      <small>${Number(active?.count || 0)}</small>
+    </button>
+  `;
+}
+
+function prioritizeTabs(tabs) {
+  return [...tabs].sort((a, b) => {
+    if (a.id === state.activeGoalId) return -1;
+    if (b.id === state.activeGoalId) return 1;
+    if (a.id === "all") return -1;
+    if (b.id === "all") return 1;
+    return Number(b.count || 0) - Number(a.count || 0);
+  });
 }
 
 function renderActivity() {
@@ -288,6 +347,7 @@ function cardHtml(card, stackIndex) {
   const top = stackIndex === 0;
   const meta = sourceMeta(card);
   const action = selectedButton(card);
+  const canStart = Boolean(action);
   const selected = selectedBlock(card);
   const prepared = completedWorkTags(card);
   const others = otherBlocks(card);
@@ -321,7 +381,7 @@ function cardHtml(card, stackIndex) {
       <section class="card-summary">
         <div class="summary-copy">
           <strong>${escapeHtml(summaryLabel(card))}</strong>
-          <p>${escapeHtml(summaryValue(card))}</p>
+          <p>${escapeHtml(summaryValue(card, selected))}</p>
         </div>
         <span class="count-pill">${escapeHtml(countLabel(card))}</span>
       </section>
@@ -335,19 +395,17 @@ function cardHtml(card, stackIndex) {
             <div class="insight-value">${renderRichText(primaryInsight(card, selected))}</div>
           </article>
           ${prepared.length ? preparedPanelHtml(prepared) : ""}
-          ${selected ? detailPanelHtml(selected.title || "Selected version", selected.body, true) : ""}
           ${others.map((block) => detailPanelHtml(block.title || "Details", block.body)).join("")}
-          ${actionDetailHtml(card)}
         </div>
       </section>
 
       <footer class="card-footer">
         <div class="choice-preview">
-          <strong>${escapeHtml(action?.text || "Ready when you are")}</strong>
+          <strong>${escapeHtml(action?.text || "Needs context")}</strong>
           <p>${escapeHtml(actionPreview(card, action))}</p>
         </div>
-        <button class="choice-button" data-start-current type="button">
-          ${escapeHtml(action?.text || "Start")}
+        <button class="choice-button" data-start-current type="button" ${canStart ? "" : "disabled"}>
+          ${escapeHtml(action?.text || "Add context")}
         </button>
       </footer>
     </article>
@@ -495,7 +553,8 @@ function summaryLabel(card) {
   return String(card.source || "").startsWith("miniapp-") ? "Best first move" : "Why this card matters";
 }
 
-function summaryValue(card) {
+function summaryValue(card, selected = null) {
+  if (selected?.body) return clipLabel(selected.body, 132);
   const text = primaryWhy(card);
   return text || "Quick context is ready. You just decide if it should start.";
 }
@@ -586,7 +645,7 @@ function completedWorkTags(card) {
   const allText = [card.title, card.why, card.action, blockText].join(" ").toLowerCase();
   if (/\b(draft|variant|reply|message|post copy|script)\b/.test(blockText)) tags.add("Drafts are already prepared.");
   if (/\b(diff|pr|pull request|patch|test)\b/.test(allText)) tags.add("The code context was already inspected.");
-  if (/\b(asset|image|video|screenshot|clip|media)\b/.test(allText) || card.visual?.kind === "image" || card.visual?.kind === "video") tags.add("The supporting asset is ready.");
+  if (/\b(asset ready|image ready|video ready|screenshot|clip ready|attached asset)\b/.test(allText) || card.visual?.kind === "image" || card.visual?.kind === "video") tags.add("The supporting asset is ready.");
   if (/\b(analy[sz]e|data|metrics|scoreboard|signup|flight|compare|research)\b/.test(allText)) tags.add("The research step already happened.");
   return [...tags].slice(0, 3);
 }
@@ -716,6 +775,11 @@ async function startCurrentCard(item = null) {
   const card = currentCard();
   if (!card) return;
   const action = selectedButton(card);
+  if (!action) {
+    toast("Add context first.");
+    openContext();
+    return;
+  }
   await startCard(card.id, action?.raw || "", item || els.deck.querySelector(".deck-card.is-top"));
 }
 
@@ -853,6 +917,10 @@ async function startAutopilot() {
   }
 }
 
+function openWorkSheet() {
+  els.workSheet.showModal();
+}
+
 function scheduleRefresh() {
   [1200, 4200, 9000].forEach((delay) => {
     setTimeout(() => refresh({ resetToTop: false }).catch((error) => toast(error.message)), delay);
@@ -877,7 +945,7 @@ function railSvg(collapsed) {
 }
 
 els.context.addEventListener("click", openContext);
-els.autopilot.addEventListener("click", startAutopilot);
+els.autopilot.addEventListener("click", openWorkSheet);
 els.more.addEventListener("click", generateMore);
 els.skipAction.addEventListener("click", () => dismissCurrentCard());
 els.startAction.addEventListener("click", () => startCurrentCard());
@@ -898,11 +966,24 @@ els.form.addEventListener("submit", sendContext);
 els.goalForm.addEventListener("submit", createGoal);
 document.querySelector("[data-close-context]").addEventListener("click", () => els.sheet.close());
 document.querySelector("[data-close-goal]").addEventListener("click", () => els.goalSheet.close());
+document.querySelector("[data-close-work]").addEventListener("click", () => els.workSheet.close());
+document.querySelector("[data-close-lanes]").addEventListener("click", () => els.laneSheet.close());
+els.workForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  els.workSheet.close();
+  startAutopilot();
+});
 els.sheet.addEventListener("click", (event) => {
   if (event.target === els.sheet) els.sheet.close();
 });
 els.goalSheet.addEventListener("click", (event) => {
   if (event.target === els.goalSheet) els.goalSheet.close();
+});
+els.workSheet.addEventListener("click", (event) => {
+  if (event.target === els.workSheet) els.workSheet.close();
+});
+els.laneSheet.addEventListener("click", (event) => {
+  if (event.target === els.laneSheet) els.laneSheet.close();
 });
 document.querySelectorAll("[data-goal-example]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -937,5 +1018,14 @@ try {
     refresh().catch((error) => toast(error.message));
   }, 10000);
 } catch (error) {
-  els.deck.innerHTML = `<article class="empty"><strong>Login failed</strong><p>${escapeHtml(error.message)}</p></article>`;
+  const missingTelegram = !initData || /initData|signature|expired|owner/i.test(error.message);
+  [els.more, els.autopilot, els.skipAction, els.startAction, els.context, els.newGoal].forEach((button) => {
+    if (button) button.disabled = true;
+  });
+  els.deck.innerHTML = `
+    <article class="empty">
+      <strong>${missingTelegram ? "Open from Telegram" : "Could not load cards"}</strong>
+      <p>${escapeHtml(missingTelegram ? "Reopen the Mini App from the Telegram bot so the session can be verified." : error.message)}</p>
+    </article>
+  `;
 }

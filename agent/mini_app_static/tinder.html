@@ -4,12 +4,6 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>bux feed</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@400;500;700&display=swap"
-      rel="stylesheet"
-    />
     <link rel="stylesheet" href="/tinder.css?v=20260515x3" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
@@ -72,8 +66,8 @@
           </div>
 
           <div class="top-actions">
-            <button id="moreButton" class="secondary-button" type="button">More cards</button>
-            <button id="autopilotButton" class="primary-button" type="button">Run goal</button>
+            <button id="moreButton" class="secondary-button" type="button">Scan now</button>
+            <button id="autopilotButton" class="primary-button" type="button">Work privately</button>
           </div>
         </header>
 
@@ -92,11 +86,40 @@
         </section>
 
         <footer class="bottom-bar">
-          <button id="skipAction" class="round-action round-skip" type="button" aria-label="Skip card"></button>
+          <div class="action-cluster">
+            <button id="skipAction" class="round-action round-skip" type="button" aria-label="Skip card"></button>
+            <span>Skip</span>
+          </div>
           <button id="contextButton" class="context-button" type="button">Add context</button>
-          <button id="startAction" class="round-action round-start" type="button" aria-label="Start card"></button>
+          <div class="action-cluster">
+            <button id="startAction" class="round-action round-start" type="button" aria-label="Start selected card"></button>
+            <span>Start</span>
+          </div>
         </footer>
       </section>
+
+      <dialog id="workSheet" class="sheet">
+        <form id="workForm" method="dialog" class="sheet-card">
+          <p class="sheet-kicker">Private work</p>
+          <label for="workConfirmButton">Run the agent on this lane now.</label>
+          <p class="sheet-note">It can inspect, draft, test, and prepare work. Sending, posting, buying, deleting, or changing something visible still comes back as a card.</p>
+          <div class="sheet-actions">
+            <button value="cancel" type="button" data-close-work>Cancel</button>
+            <button id="workConfirmButton" value="send" class="primary-button" type="submit">Start private work</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="laneSheet" class="sheet">
+        <form method="dialog" class="sheet-card">
+          <p class="sheet-kicker">Lanes</p>
+          <label>Choose which queue to review.</label>
+          <div id="laneList" class="lane-list"></div>
+          <div class="sheet-actions">
+            <button value="cancel" type="button" data-close-lanes>Close</button>
+          </div>
+        </form>
+      </dialog>
 
       <dialog id="contextSheet" class="sheet">
         <form id="contextForm" method="dialog" class="sheet-card">
