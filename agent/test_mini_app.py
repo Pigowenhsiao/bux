@@ -108,6 +108,7 @@ class MiniAppTest(unittest.TestCase):
         second = self.app._cards()
 
         starter_cards = [card for card in first if str(card["source"]).startswith("miniapp-")]
+        self.assertGreaterEqual(len(self.app.STARTER_IDEAS), 10)
         self.assertEqual(len(starter_cards), len(self.app.STARTER_IDEAS))
         self.assertEqual(
             sorted(card["id"] for card in first if str(card["source"]).startswith("miniapp-")),
@@ -116,7 +117,9 @@ class MiniAppTest(unittest.TestCase):
         self.assertTrue(starter_cards[0]["buttons"])
         self.assertGreater(len(starter_cards[0]["buttons"]), 1)
         self.assertTrue(starter_cards[0]["blocks"])
-        self.assertEqual(starter_cards[0]["visual"]["kind"], "none")
+        self.assertEqual(starter_cards[0]["visual"]["kind"], "image")
+        self.assertTrue(starter_cards[0]["visual"]["src"].startswith("data:image/svg+xml;base64,"))
+        self.assertTrue(all(len(card["buttons"]) >= 2 for card in starter_cards))
         self.assertTrue(all(card["source_label"] == "Starter goal" for card in starter_cards))
 
     def test_cards_include_local_image_data_url(self) -> None:

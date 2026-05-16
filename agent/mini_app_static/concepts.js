@@ -2,24 +2,269 @@ const tg = window.Telegram?.WebApp;
 tg?.ready();
 tg?.expand();
 
+try {
+  tg?.setHeaderColor?.("#090b10");
+  tg?.setBackgroundColor?.("#090b10");
+  tg?.setBottomBarColor?.("#090b10");
+} catch {
+  // Older Telegram clients do not expose every color API.
+}
+
 const params = new URLSearchParams(window.location.search);
 if (params.get("dev") === "1") localStorage.buxMiniAppDev = "1";
 const initData = tg?.initData || (localStorage.buxMiniAppDev === "1" ? "dev" : "");
 const app = document.querySelector("#app");
 const toastEl = document.querySelector("#toast");
+const STORE_KEY = "buxMiniAppConceptLab:v3";
 
 const CONCEPTS = [
-  { id: 1, slug: "swipe", name: "Spark Deck", line: "A fast Tinder-style yes/no stack for useful work.", idea: "Swipe right to start, left to skip.", score: "Fastest" },
-  { id: 2, slug: "quest", name: "Quest Log", line: "Cards become missions with XP, streaks, and boss fights.", idea: "Clear quests, level up your agent.", score: "Most addictive" },
-  { id: 3, slug: "feed", name: "Signal Feed", line: "An x-style stream where every post is actionable.", idea: "Like scrolling, but productive.", score: "Most familiar" },
-  { id: 4, slug: "cockpit", name: "Mission Control", line: "A cockpit for goals, risk, active work, and next moves.", idea: "See the system, launch the next action.", score: "Most powerful" },
-  { id: 5, slug: "bento", name: "Bento OS", line: "A playful tile board of goals, cards, automations, and wins.", idea: "Tap the tile that matters now.", score: "Most glanceable" },
-  { id: 6, slug: "story", name: "Story Mode", line: "One goal unfolds as a guided narrative with chapters.", idea: "Make progress like turning pages.", score: "Most human" },
-  { id: 7, slug: "radar", name: "Opportunity Radar", line: "Cards orbit by urgency and leverage like a live scanner.", idea: "Pull the hottest blip into action.", score: "Most futuristic" },
-  { id: 8, slug: "arcade", name: "Action Arcade", line: "A dopamine-heavy control pad for streaks and combo clears.", idea: "Clear one more card.", score: "Most game-like" },
-  { id: 9, slug: "triage", name: "Triage Lane", line: "Inbox-zero discipline with a tight approve, snooze, delegate loop.", idea: "Every card leaves the lane.", score: "Most productive" },
-  { id: 10, slug: "coach", name: "Pocket Coach", line: "Chat and cards merge into a compact AI sidekick.", idea: "The agent explains, you approve.", score: "Most conversational" },
+  {
+    id: 1,
+    slug: "reels",
+    name: "AI Reels",
+    score: "visual scroll",
+    line: "A TikTok-like work feed. One image, one decision, no dashboard thinking.",
+  },
+  {
+    id: 2,
+    slug: "quest",
+    name: "Quest Casino",
+    score: "most addictive",
+    line: "A warmer version of the quest board: jackpots, XP, streaks, and useful work.",
+  },
+  {
+    id: 3,
+    slug: "slot",
+    name: "Idea Slot",
+    score: "fast ideas",
+    line: "Spin through cached ideas, then approve, skip, or remix without waiting on generation.",
+  },
+  {
+    id: 4,
+    slug: "numbers",
+    name: "Founder Scoreboard",
+    score: "big numbers",
+    line: "The big metrics stay on top. Cards explain exactly what moves a number next.",
+  },
+  {
+    id: 5,
+    slug: "stories",
+    name: "Stories Board",
+    score: "social",
+    line: "Telegram work stories: colorful channels, posters, quick reactions, and follow-ups.",
+  },
+  {
+    id: 6,
+    slug: "speed",
+    name: "Speed Tap",
+    score: "quickest loop",
+    line: "A very fast click-through lane for clearing many cards without losing context.",
+  },
+  {
+    id: 7,
+    slug: "radar",
+    name: "Goal Radar",
+    score: "futuristic",
+    line: "A radar overview grouped by goals. Tap a blip to inspect and act.",
+  },
+  {
+    id: 8,
+    slug: "wheel",
+    name: "Action Wheel",
+    score: "playful",
+    line: "A roulette-like wheel for discovering the next high-leverage idea.",
+  },
+  {
+    id: 9,
+    slug: "gallery",
+    name: "Poster Gallery",
+    score: "most visual",
+    line: "Cards become large collectible posters so the idea is understood immediately.",
+  },
+  {
+    id: 10,
+    slug: "os",
+    name: "Goal OS",
+    score: "overview",
+    line: "Not another chat. A control room for goals, permissions, cadence, and momentum.",
+  },
 ];
+
+const DEMO_CARDS = [
+  {
+    id: "demo-gmail",
+    title: "Draft replies for the three people waiting on you",
+    why: "A fast inbox sweep can turn vague guilt into approval-ready reply cards.",
+    source: "miniapp-demo:gmail",
+    source_label: "Gmail",
+    importance: "high",
+    buttons: ["Draft all replies", "Show only VIPs", "Monitor every 30 min"],
+    blocks: [
+      { title: "Draft all replies", body: "Find unanswered threads, draft short replies, and ask before sending." },
+      { title: "Show only VIPs", body: "Filter for investors, customers, teammates, and named high-value contacts." },
+      { title: "Monitor every 30 min", body: "Create a quiet inbox loop that only interrupts for concrete decisions." },
+    ],
+    image_text: "GMAIL\n3 replies",
+    category: "inbox",
+  },
+  {
+    id: "demo-slack",
+    title: "Find who is blocked on you in Slack",
+    why: "The agent can scan mentions, DMs, and hot channels, then produce a tiny unblock list.",
+    source: "miniapp-demo:slack",
+    source_label: "Slack",
+    importance: "high",
+    buttons: ["Find blockers", "Draft answers", "Daily digest"],
+    blocks: [
+      { title: "Find blockers", body: "Name the person, channel, and exact ask before creating a card." },
+      { title: "Draft answers", body: "Prepare concise replies for review instead of sending anything visible." },
+      { title: "Daily digest", body: "Schedule a short Slack brief that ignores noisy chatter." },
+    ],
+    image_text: "SLACK\nunblock",
+    category: "people",
+  },
+  {
+    id: "demo-github",
+    title: "Watch the risky PR until CI is green",
+    why: "Turn review requests and failing checks into a single ship-or-fix card.",
+    source: "miniapp-demo:github",
+    source_label: "GitHub",
+    importance: "med",
+    buttons: ["Watch CI", "Review diff", "Tell me when green"],
+    blocks: [
+      { title: "Watch CI", body: "Track checks and only interrupt for failures or merge readiness." },
+      { title: "Review diff", body: "Summarize risky files, missing tests, and likely regressions." },
+      { title: "Tell me when green", body: "Send one card when the branch is safe to merge." },
+    ],
+    image_text: "GITHUB\nship",
+    category: "code",
+  },
+  {
+    id: "demo-growth",
+    title: "Find five warm distribution openings",
+    why: "The feed should discover real people, posts, launches, and replies worth acting on.",
+    source: "miniapp-demo:growth",
+    source_label: "Growth",
+    importance: "high",
+    buttons: ["Find openings", "Draft outreach", "Make launch list"],
+    blocks: [
+      { title: "Find openings", body: "Search connected context for named people and channels with active intent." },
+      { title: "Draft outreach", body: "Prepare short variants that feel specific, not generic." },
+      { title: "Make launch list", body: "Build the next ten places worth posting or following up." },
+    ],
+    image_text: "GROWTH\nopenings",
+    category: "growth",
+  },
+  {
+    id: "demo-customers",
+    title: "Spot customers who might churn this week",
+    why: "Look for slow replies, unresolved bugs, usage drops, and frustrated messages.",
+    source: "miniapp-demo:customers",
+    source_label: "Customers",
+    importance: "high",
+    buttons: ["Start radar", "Find churn risk", "Draft save plan"],
+    blocks: [
+      { title: "Start radar", body: "Scan support, email, Slack, CRM notes, and product signals." },
+      { title: "Find churn risk", body: "Name the customer, symptom, and next recovery move." },
+      { title: "Draft save plan", body: "Create an approval card with the safest next contact." },
+    ],
+    image_text: "CUSTOMERS\nradar",
+    category: "customer",
+  },
+  {
+    id: "demo-calendar",
+    title: "Prep your next meeting like a chief of staff",
+    why: "A meeting card should include people, context, decisions, and suggested questions.",
+    source: "miniapp-demo:calendar",
+    source_label: "Calendar",
+    importance: "med",
+    buttons: ["Prep next meeting", "Find last context", "Daily agenda"],
+    blocks: [
+      { title: "Prep next meeting", body: "Gather attendees, prior threads, docs, and open decisions." },
+      { title: "Find last context", body: "Recover the last relevant exchange before the meeting starts." },
+      { title: "Daily agenda", body: "Summarize only meetings where prep changes the outcome." },
+    ],
+    image_text: "CALENDAR\nready",
+    category: "calendar",
+  },
+  {
+    id: "demo-brief",
+    title: "Create a 9am startup command brief",
+    why: "One daily digest for metrics, blockers, launches, risky PRs, and customer fires.",
+    source: "miniapp-demo:brief",
+    source_label: "Daily Brief",
+    importance: "med",
+    buttons: ["Set 9am brief", "Show sample", "Pick sources"],
+    blocks: [
+      { title: "Set 9am brief", body: "Schedule a PT morning brief that creates cards, not a wall of text." },
+      { title: "Show sample", body: "Preview money, users, bugs, shipping, people, and risks." },
+      { title: "Pick sources", body: "Choose Gmail, Slack, GitHub, Linear, Calendar, analytics, or docs." },
+    ],
+    image_text: "9AM\nbrief",
+    category: "ops",
+  },
+  {
+    id: "demo-quality",
+    title: "Turn bugs and flaky checks into a fix queue",
+    why: "The best monitoring card names the failure, likely cause, and next safe action.",
+    source: "miniapp-demo:quality",
+    source_label: "Quality",
+    importance: "med",
+    buttons: ["Find next fix", "Watch failures", "Make bug queue"],
+    blocks: [
+      { title: "Find next fix", body: "Inspect failing tests, bug reports, incidents, and noisy alerts." },
+      { title: "Watch failures", body: "Keep a recurring monitor quiet until something materially changes." },
+      { title: "Make bug queue", body: "Rank concrete bugs by user pain and shipping risk." },
+    ],
+    image_text: "BUGS\nfix queue",
+    category: "quality",
+  },
+  {
+    id: "demo-focus",
+    title: "Protect two hours of deep work",
+    why: "Batch low-value replies and only interrupt for named blockers or customer escalations.",
+    source: "miniapp-demo:focus",
+    source_label: "Focus",
+    importance: "low",
+    buttons: ["Start focus block", "Batch replies", "Only urgent"],
+    blocks: [
+      { title: "Start focus block", body: "Ask for the window, then quietly watch incoming surfaces." },
+      { title: "Batch replies", body: "Draft low-risk replies for later approval." },
+      { title: "Only urgent", body: "Interrupt only for named blockers, production issues, or time-sensitive decisions." },
+    ],
+    image_text: "FOCUS\n2 hours",
+    category: "focus",
+  },
+  {
+    id: "demo-launch",
+    title: "Run a launch from idea to reaction follow-up",
+    why: "Launch cards should handle copy, checklists, posting, monitoring, and the next reply.",
+    source: "miniapp-demo:launch",
+    source_label: "Launch",
+    importance: "high",
+    buttons: ["Plan launch", "Draft copy", "Watch reactions"],
+    blocks: [
+      { title: "Plan launch", body: "Make a visible checklist with channels, assets, blockers, and approvals." },
+      { title: "Draft copy", body: "Prepare short variants for X, LinkedIn, email, community, and customer follow-up." },
+      { title: "Watch reactions", body: "Turn replies, mentions, signups, and support issues into cards." },
+    ],
+    image_text: "LAUNCH\nmake noise",
+    category: "launch",
+  },
+];
+
+const CATEGORY_META = {
+  inbox: { label: "Inbox", short: "IN", color: "#ff4d6d" },
+  people: { label: "People", short: "DM", color: "#22c55e" },
+  code: { label: "Code", short: "PR", color: "#38bdf8" },
+  growth: { label: "Growth", short: "GR", color: "#f59e0b" },
+  customer: { label: "Customers", short: "CU", color: "#f97316" },
+  calendar: { label: "Calendar", short: "CA", color: "#a78bfa" },
+  ops: { label: "Ops", short: "OP", color: "#14b8a6" },
+  quality: { label: "Quality", short: "QA", color: "#ef4444" },
+  focus: { label: "Focus", short: "FO", color: "#64748b" },
+  launch: { label: "Launch", short: "LA", color: "#ec4899" },
+};
 
 const state = {
   cards: [],
@@ -31,6 +276,11 @@ const state = {
   conceptId: conceptIdFromPath(),
   selected: {},
   focusCardId: null,
+  spinIndex: 0,
+  wheelTurns: 0,
+  apiOnline: false,
+  apiError: "",
+  local: loadLocalState(),
 };
 
 function conceptIdFromPath() {
@@ -50,6 +300,23 @@ function hubPath() {
   return `/mini-apps${params.get("dev") === "1" || localStorage.buxMiniAppDev === "1" ? "?dev=1" : ""}`;
 }
 
+function loadLocalState() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
+    return {
+      decisions: parsed.decisions || {},
+      cards: Array.isArray(parsed.cards) ? parsed.cards : [],
+      notes: parsed.notes || {},
+    };
+  } catch {
+    return { decisions: {}, cards: [], notes: {} };
+  }
+}
+
+function saveLocalState() {
+  localStorage.setItem(STORE_KEY, JSON.stringify(state.local));
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
@@ -65,22 +332,92 @@ async function api(path, options = {}) {
 }
 
 async function refresh() {
-  const [goals, topics, cards, stats, activity, me] = await Promise.all([
-    api("/api/goals"),
-    api("/api/topics"),
-    api("/api/cards"),
-    api("/api/stats"),
-    api("/api/activity"),
-    api("/api/me"),
-  ]);
-  state.goals = goals.goals || [];
-  state.topics = topics.topics || [];
-  state.cards = cards.cards || [];
-  state.stats = stats.stats || {};
-  state.activity = activity.activity || [];
-  state.me = me || { settings: {} };
-  if (!state.focusCardId && state.cards[0]) state.focusCardId = state.cards[0].id;
+  try {
+    const [goals, topics, cards, stats, activity, me] = await Promise.all([
+      api("/api/goals"),
+      api("/api/topics"),
+      api("/api/cards"),
+      api("/api/stats"),
+      api("/api/activity"),
+      api("/api/me"),
+    ]);
+    state.apiOnline = true;
+    state.apiError = "";
+    state.goals = goals.goals || [];
+    state.topics = topics.topics || [];
+    state.stats = stats.stats || {};
+    state.activity = activity.activity || [];
+    state.me = me || { settings: {} };
+    state.cards = mergeCards(cards.cards || []);
+  } catch (error) {
+    state.apiOnline = false;
+    state.apiError = error.message || "API unavailable";
+    state.goals = [];
+    state.topics = [];
+    state.stats = { open: 10, done: Object.keys(state.local.decisions).length };
+    state.activity = localActivity();
+    state.cards = mergeCards([]);
+  }
+  if (!state.focusCardId || !state.cards.some((card) => String(card.id) === String(state.focusCardId))) {
+    state.focusCardId = activeCards(1)[0]?.id || state.cards[0]?.id || null;
+  }
   render();
+}
+
+function mergeCards(apiCards) {
+  const normalized = apiCards.map((card) => normalizeCard(card, false));
+  const existingSources = new Set(normalized.map((card) => card.source));
+  const generated = state.local.cards.map((card) => normalizeCard(card, true));
+  const generatedIds = new Set(generated.map((card) => String(card.id)));
+  const needed = Math.max(0, 10 - normalized.length - generated.length);
+  const demos = DEMO_CARDS
+    .filter((card) => !existingSources.has(card.source) && !generatedIds.has(String(card.id)))
+    .slice(0, needed)
+    .map((card) => normalizeCard(card, true));
+  return [...generated, ...normalized, ...demos];
+}
+
+function normalizeCard(raw, demo) {
+  const fallback = DEMO_CARDS.find((item) => item.source === raw.source) || {};
+  return {
+    ...raw,
+    id: raw.id,
+    title: raw.title || fallback.title || "Untitled card",
+    why: raw.why || raw.description || fallback.why || "This is ready for a one-tap decision.",
+    source: raw.source || fallback.source || "miniapp-demo",
+    source_label: raw.source_label || fallback.source_label || raw.topic_title || "bux",
+    buttons: ensureButtons(raw.buttons || fallback.buttons),
+    blocks: Array.isArray(raw.blocks) && raw.blocks.length ? raw.blocks : fallback.blocks || [],
+    image_text: raw.image_text || fallback.image_text || raw.title || "BUX\ncard",
+    category: raw.category || inferCategory(raw),
+    demo,
+    visual: raw.visual || { kind: "none" },
+    created_at: raw.created_at || Math.round(Date.now() / 1000),
+  };
+}
+
+function ensureButtons(buttons) {
+  const labels = (Array.isArray(buttons) ? buttons : []).map((item) => String(item || "").trim()).filter(Boolean);
+  const defaults = ["Start", "Skip", "Remix"];
+  for (const label of defaults) {
+    if (labels.length >= 3) break;
+    if (!labels.some((item) => item.toLowerCase() === label.toLowerCase())) labels.push(label);
+  }
+  return labels.slice(0, 4);
+}
+
+function inferCategory(card) {
+  const text = `${card.source || ""} ${card.source_label || ""} ${card.title || ""}`.toLowerCase();
+  if (text.includes("gmail") || text.includes("email") || text.includes("inbox")) return "inbox";
+  if (text.includes("slack") || text.includes("dm") || text.includes("people")) return "people";
+  if (text.includes("github") || text.includes("pr") || text.includes("ci") || text.includes("repo")) return "code";
+  if (text.includes("customer") || text.includes("churn") || text.includes("lead")) return "customer";
+  if (text.includes("calendar") || text.includes("meeting")) return "calendar";
+  if (text.includes("quality") || text.includes("bug") || text.includes("monitor")) return "quality";
+  if (text.includes("focus") || text.includes("deep")) return "focus";
+  if (text.includes("launch")) return "launch";
+  if (text.includes("growth") || text.includes("distribution")) return "growth";
+  return "ops";
 }
 
 function render() {
@@ -92,11 +429,22 @@ function render() {
     return;
   }
   document.body.className = `concept-${concept.id} theme-${concept.slug}`;
-  app.className = `concept-shell concept-${concept.id}`;
+  app.className = `concept-shell concept-shell-${concept.slug}`;
+  const renderers = {
+    1: renderReels,
+    2: renderQuestCasino,
+    3: renderSlotMachine,
+    4: renderNumbers,
+    5: renderStories,
+    6: renderSpeedTap,
+    7: renderRadar,
+    8: renderWheel,
+    9: renderGallery,
+    10: renderGoalOS,
+  };
   app.innerHTML = `
-    ${renderTop(concept)}
-    ${renderConcept(concept)}
-    ${renderActionDock()}
+    ${renderLabNav(concept)}
+    ${renderers[concept.id]?.(concept) || ""}
   `;
 }
 
@@ -104,18 +452,19 @@ function renderHub() {
   return `
     <section class="hub-hero">
       <p class="micro">bux experiment lab</p>
-      <h1>10 futures for the AI work feed.</h1>
-      <p>Each Mini App uses the same live cards, goals, and Telegram-safe actions. The interaction model changes completely, so you can feel what sticks.</p>
+      <h1>10 sharper Mini App experiences.</h1>
+      <p>Same AI action cards, ten different interaction loops: reels, slot machine, radar, roulette, posters, speed tapping, and a goal OS.</p>
       <div class="hub-stats">
-        <span>${state.cards.length} live cards</span>
-        <span>${state.goals.length + state.topics.length} lanes</span>
-        <span>${state.activity.length} recent decisions</span>
+        <span>${state.cards.length} cards loaded</span>
+        <span>${Object.keys(groupByCategory()).length} goals/categories</span>
+        <span>${state.apiOnline ? "live data" : "demo fallback"}</span>
       </div>
+      <button class="mega-spin" data-action="spin-global">Spin a new idea</button>
     </section>
     <section class="concept-grid">
       ${CONCEPTS.map((concept) => `
         <a class="concept-tile concept-tile-${concept.id}" href="${conceptPath(concept.id)}">
-          <span class="tile-number">Mini App ${concept.id}</span>
+          <span class="tile-kicker">Mini App ${concept.id}</span>
           <strong>${escapeHtml(concept.name)}</strong>
           <p>${escapeHtml(concept.line)}</p>
           <small>${escapeHtml(concept.score)}</small>
@@ -125,104 +474,49 @@ function renderHub() {
   `;
 }
 
-function renderTop(concept) {
+function renderLabNav(concept) {
+  const prev = concept.id === 1 ? 10 : concept.id - 1;
+  const next = concept.id === 10 ? 1 : concept.id + 1;
   return `
-    <header class="concept-top">
-      <a class="back-link" href="${hubPath()}">All 10</a>
-      <div>
-        <p class="micro">Mini App ${concept.id} / ${escapeHtml(concept.score)}</p>
+    <nav class="lab-nav" aria-label="Mini App versions">
+      <a class="lab-home" href="${hubPath()}">All</a>
+      <div class="version-strip">
+        <a href="${conceptPath(prev)}">Prev ${prev}</a>
+        <span>${concept.id} / 10</span>
+        <a href="${conceptPath(next)}">Next ${next}</a>
+      </div>
+      <span class="sync-pill ${state.apiOnline ? "online" : "offline"}">${state.apiOnline ? "live" : "demo"}</span>
+    </nav>
+  `;
+}
+
+function renderReels(concept) {
+  const cards = activeCards(10);
+  return `
+    <section class="reels-shell">
+      <div class="reels-intro">
+        <span>Mini App 1</span>
         <h1>${escapeHtml(concept.name)}</h1>
         <p>${escapeHtml(concept.line)}</p>
       </div>
-      <nav class="number-nav" aria-label="Mini app versions">
-        ${CONCEPTS.map((item) => `
-          <a class="${item.id === concept.id ? "active" : ""}" href="${conceptPath(item.id)}">${item.id}</a>
-        `).join("")}
-      </nav>
-    </header>
-  `;
-}
-
-function renderConcept(concept) {
-  const renderers = {
-    1: renderSwipeDeck,
-    2: renderQuestLog,
-    3: renderSignalFeed,
-    4: renderMissionControl,
-    5: renderBentoOS,
-    6: renderStoryMode,
-    7: renderRadar,
-    8: renderArcade,
-    9: renderTriageLane,
-    10: renderCoach,
-  };
-  return renderers[concept.id]?.(concept) || "";
-}
-
-function renderSwipeDeck(concept) {
-  const cards = topCards(3);
-  return `
-    <section class="swipe-stage">
-      <div class="swipe-copy">
-        <span>${escapeHtml(concept.idea)}</span>
-        <strong>${state.cards.length} cards waiting</strong>
-      </div>
-      <div class="phone-stack">
-        ${cards.map((card, index) => renderHeroCard(card, `stack-${index}`)).join("") || emptyPanel()}
-      </div>
-      <div class="gesture-row">
-        ${button("skip", cards[0]?.id, "Nope")}
-        <button class="ghost-action" data-action="context" data-card-id="${cards[0]?.id || ""}">Refine</button>
-        ${button("start", cards[0]?.id, "Start")}
-      </div>
-    </section>
-  `;
-}
-
-function renderQuestLog() {
-  const quests = topCards(5);
-  return `
-    <section class="quest-layout">
-      <aside class="level-card">
-        <p class="micro">agent level</p>
-        <h2>${Math.max(1, Number(state.stats.done || 0) + 3)}</h2>
-        <p>${state.stats.open || state.cards.length} quests open. Clear three to unlock a streak.</p>
-        <div class="xp-track"><span style="width:${Math.min(94, 18 + state.cards.length * 9)}%"></span></div>
-      </aside>
-      <div class="quest-list">
-        ${quests.map((card, index) => `
-          <article class="quest-card">
-            <span class="quest-rank">Q${index + 1}</span>
-            <div>
-              <strong>${escapeHtml(card.title)}</strong>
-              <p>${escapeHtml(card.why || "This move is ready.")}</p>
-              <div class="mini-actions">${variantButtons(card)}${button("start", card.id, "Claim XP")}</div>
-            </div>
-          </article>
-        `).join("") || emptyPanel()}
-      </div>
-    </section>
-  `;
-}
-
-function renderSignalFeed() {
-  return `
-    <section class="feed-layout">
-      <aside class="feed-sidebar">
-        <strong>For you</strong>
-        <span>${state.stats.open || state.cards.length} signals</span>
-        <span>${state.goals.length} goals</span>
-        <span>${state.topics.length} topics</span>
-      </aside>
-      <div class="post-feed">
-        ${topCards(8).map((card) => `
-          <article class="post-card">
-            <div class="avatar">${escapeHtml(sourceInitial(card))}</div>
-            <div>
-              <header><strong>${escapeHtml(sourceName(card))}</strong><span>${escapeHtml(relative(card.created_at))}</span></header>
+      <div class="reel-feed">
+        ${cards.map((card, index) => `
+          <article class="reel-card" data-card-id="${card.id}">
+            ${renderVisual(card, "reel-visual")}
+            <div class="reel-copy">
+              <span>${escapeHtml(categoryMeta(card).label)} / ${escapeHtml(sourceName(card))}</span>
               <h2>${escapeHtml(card.title)}</h2>
-              <p>${escapeHtml(card.why || actionPreview(card))}</p>
-              <div class="post-actions">${button("skip", card.id, "Skip")}${button("context", card.id, "Comment")}${button("start", card.id, selectedLabel(card))}</div>
+              <p>${escapeHtml(card.why)}</p>
+              <div class="reel-buttons">
+                ${actionButton("start", card, selectedLabel(card), "primary")}
+                ${actionButton("skip", card, "Skip", "dark")}
+                ${actionButton("remix", card, "Remix", "glass")}
+              </div>
+            </div>
+            <div class="reel-side">
+              <button data-action="focus" data-card-id="${card.id}">${String(index + 1).padStart(2, "0")}</button>
+              <button data-action="context" data-card-id="${card.id}">Tune</button>
+              <button data-action="remix" data-card-id="${card.id}">New</button>
             </div>
           </article>
         `).join("") || emptyPanel()}
@@ -231,218 +525,417 @@ function renderSignalFeed() {
   `;
 }
 
-function renderMissionControl() {
-  const focus = focusedCard();
+function renderQuestCasino(concept) {
+  const cards = activeCards(6);
   return `
-    <section class="cockpit-layout">
-      <div class="cockpit-grid">
-        <article class="instrument primary">
-          <p class="micro">next launch</p>
-          ${focus ? `<h2>${escapeHtml(focus.title)}</h2><p>${escapeHtml(focus.why || actionPreview(focus))}</p><div class="mini-actions">${variantButtons(focus)}${button("start", focus.id, "Launch")}</div>` : emptyPanel()}
-        </article>
-        <article class="instrument"><span>Open</span><strong>${state.stats.open || state.cards.length}</strong></article>
-        <article class="instrument"><span>Done</span><strong>${state.stats.done || 0}</strong></article>
-        <article class="instrument"><span>Notes</span><strong>${state.stats.comments || 0}</strong></article>
-      </div>
-      <div class="runway">
-        ${topCards(6).map((card) => `
-          <button class="${card.id === state.focusCardId ? "active" : ""}" data-action="focus" data-card-id="${card.id}">
-            <span>${escapeHtml(sourceName(card))}</span>
-            <strong>${escapeHtml(card.title)}</strong>
-          </button>
-        `).join("")}
+    <section class="quest-casino">
+      <header class="casino-hero">
+        <div>
+          <p class="micro">Mini App 2 / ${escapeHtml(concept.score)}</p>
+          <h1>Clear quests. Win momentum.</h1>
+          <p>${escapeHtml(concept.line)}</p>
+        </div>
+        <div class="jackpot">
+          <span>XP</span>
+          <strong>${xpScore()}</strong>
+          <small>${cards.length} quests open</small>
+        </div>
+      </header>
+      <div class="quest-table">
+        ${cards.map((card, index) => `
+          <article class="quest-ticket ${index === 0 ? "hot" : ""}">
+            <div class="ticket-rank">${index + 1}</div>
+            ${renderVisual(card, "ticket-visual")}
+            <div class="ticket-copy">
+              <span>${escapeHtml(categoryMeta(card).label)}</span>
+              <h2>${escapeHtml(card.title)}</h2>
+              <p>${escapeHtml(card.why)}</p>
+              <div class="ticket-actions">
+                ${variantButtons(card)}
+                ${actionButton("start", card, "Claim quest", "primary")}
+                ${actionButton("skip", card, "Fold", "quiet")}
+              </div>
+            </div>
+          </article>
+        `).join("") || emptyPanel()}
       </div>
     </section>
   `;
 }
 
-function renderBentoOS() {
-  const cards = topCards(6);
+function renderSlotMachine(concept) {
+  const card = focusedCard() || activeCards(1)[0];
+  const cards = activeCards(10);
+  const prev = cards[(cards.indexOf(card) - 1 + cards.length) % Math.max(1, cards.length)] || card;
+  const next = cards[(cards.indexOf(card) + 1) % Math.max(1, cards.length)] || card;
   return `
-    <section class="bento-grid">
-      <article class="bento-tile hero-tile">
-        <p class="micro">today's board</p>
-        <h2>${state.cards.length || 0} live cards</h2>
-        <p>Tap the tile with the highest leverage. The agent does private work first.</p>
-      </article>
-      ${cards.map((card, index) => `
-        <article class="bento-tile tile-${index + 1}">
-          <span>${escapeHtml(sourceName(card))}</span>
-          <strong>${escapeHtml(card.title)}</strong>
-          <p>${escapeHtml(clip(card.why || actionPreview(card), 94))}</p>
-          <div class="mini-actions">${button("start", card.id, selectedLabel(card))}</div>
-        </article>
-      `).join("") || emptyPanel()}
-    </section>
-  `;
-}
-
-function renderStoryMode() {
-  const card = focusedCard() || state.cards[0];
-  const chapters = state.cards.slice(0, 5);
-  return `
-    <section class="story-layout">
-      <aside class="chapters">
-        ${chapters.map((item, index) => `
-          <button class="${item.id === card?.id ? "active" : ""}" data-action="focus" data-card-id="${item.id}">
-            <span>Chapter ${index + 1}</span>
-            <strong>${escapeHtml(clip(item.title, 42))}</strong>
-          </button>
-        `).join("")}
-      </aside>
-      <article class="story-card">
+    <section class="slot-shell">
+      <div class="slot-marquee">
+        <p class="micro">Mini App 3 / cached idea generator</p>
+        <h1>${escapeHtml(concept.name)}</h1>
+        <p>${escapeHtml(concept.line)}</p>
+      </div>
+      <div class="slot-machine ${state.local.lastSpin ? "spun" : ""}">
+        <div class="slot-window">
+          ${slotReel(prev, "Goal")}
+          ${slotReel(card, "Action", true)}
+          ${slotReel(next, "Reward")}
+        </div>
+        <button class="spin-lever" data-action="spin">Spin</button>
+      </div>
+      <article class="slot-result">
         ${card ? `
-          <p class="micro">${escapeHtml(sourceName(card))}</p>
-          <h2>${escapeHtml(card.title)}</h2>
-          <p>${escapeHtml(card.why || "The agent has enough context to begin.")}</p>
-          <blockquote>${escapeHtml(primaryBlock(card) || actionPreview(card))}</blockquote>
-          <div class="mini-actions">${variantButtons(card)}${button("start", card.id, "Continue story")}</div>
+          ${renderVisual(card, "slot-poster")}
+          <div>
+            <span>${escapeHtml(sourceName(card))}</span>
+            <h2>${escapeHtml(card.title)}</h2>
+            <p>${escapeHtml(card.why)}</p>
+            <div class="slot-actions">
+              ${actionButton("start", card, "Yes, run it", "primary")}
+              ${actionButton("skip", card, "No", "dark")}
+              ${actionButton("remix", card, "Generate similar", "glass")}
+            </div>
+          </div>
         ` : emptyPanel()}
       </article>
     </section>
   `;
 }
 
-function renderRadar() {
-  const cards = topCards(8);
+function slotReel(card, label, active = false) {
   return `
-    <section class="radar-layout">
-      <div class="radar-screen">
-        <div class="sweep"></div>
-        ${cards.map((card, index) => `
-          <button class="blip blip-${index + 1}" data-action="focus" data-card-id="${card.id}">
-            <span>${escapeHtml(sourceInitial(card))}</span>
+    <div class="slot-reel ${active ? "active" : ""}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(card ? clip(card.title, 34) : "New idea")}</strong>
+      <small>${escapeHtml(card ? categoryMeta(card).label : "bux")}</small>
+    </div>
+  `;
+}
+
+function renderNumbers(concept) {
+  const cards = activeCards(5);
+  const grouped = groupByCategory();
+  return `
+    <section class="numbers-shell">
+      <header class="numbers-top">
+        <div>
+          <p class="micro">Mini App 4 / ${escapeHtml(concept.score)}</p>
+          <h1>Numbers first. Cards underneath.</h1>
+        </div>
+        <p>${escapeHtml(concept.line)}</p>
+      </header>
+      <div class="number-wall">
+        <article><span>open</span><strong>${state.stats.open || activeCards(100).length}</strong><small>waiting moves</small></article>
+        <article><span>goals</span><strong>${Object.keys(grouped).length}</strong><small>active lanes</small></article>
+        <article><span>done</span><strong>${state.stats.done || localActivity().length}</strong><small>decisions</small></article>
+      </div>
+      <div class="number-runway">
+        ${cards.map((card) => `
+          <article class="runway-card">
+            ${renderVisual(card, "runway-visual")}
+            <div>
+              <span>${escapeHtml(categoryMeta(card).short)} / ${escapeHtml(sourceName(card))}</span>
+              <h2>${escapeHtml(card.title)}</h2>
+              <p>${escapeHtml(card.why)}</p>
+              <div>${actionButton("start", card, selectedLabel(card), "primary")}${actionButton("skip", card, "Later", "quiet")}</div>
+            </div>
+          </article>
+        `).join("") || emptyPanel()}
+      </div>
+    </section>
+  `;
+}
+
+function renderStories(concept) {
+  const grouped = Object.entries(groupByCategory());
+  const cards = activeCards(8);
+  return `
+    <section class="stories-shell">
+      <header class="stories-header">
+        <p class="micro">Mini App 5 / social work feed</p>
+        <h1>${escapeHtml(concept.name)}</h1>
+        <p>${escapeHtml(concept.line)}</p>
+      </header>
+      <div class="story-bubbles">
+        ${grouped.map(([key, items]) => `
+          <button class="story-bubble" style="--bubble:${categoryMeta({ category: key }).color}" data-action="focus" data-card-id="${items[0]?.id || ""}">
+            <span>${escapeHtml(categoryMeta({ category: key }).short)}</span>
+            <strong>${escapeHtml(categoryMeta({ category: key }).label)}</strong>
+            <small>${items.length}</small>
           </button>
         `).join("")}
-        <div class="radar-core">AI</div>
       </div>
-      <aside class="radar-card">
-        ${focusedCard() ? renderCompactFocus(focusedCard(), "Pull into work") : emptyPanel()}
+      <div class="social-feed">
+        ${cards.map((card) => `
+          <article class="social-post">
+            <header>
+              <div class="avatar-chip">${escapeHtml(categoryMeta(card).short)}</div>
+              <div><strong>${escapeHtml(sourceName(card))}</strong><span>${escapeHtml(relative(card.created_at))}</span></div>
+              <button data-action="remix" data-card-id="${card.id}">Remix</button>
+            </header>
+            ${renderVisual(card, "post-visual")}
+            <h2>${escapeHtml(card.title)}</h2>
+            <p>${escapeHtml(card.why)}</p>
+            <footer>
+              ${actionButton("start", card, selectedLabel(card), "primary")}
+              ${actionButton("context", card, "Comment", "glass")}
+              ${actionButton("skip", card, "Skip", "quiet")}
+            </footer>
+          </article>
+        `).join("") || emptyPanel()}
+      </div>
+    </section>
+  `;
+}
+
+function renderSpeedTap(concept) {
+  const cards = activeCards(6);
+  const card = focusedCard() || cards[0];
+  const progress = Math.min(100, Math.round((localActivity().length / Math.max(1, state.cards.length)) * 100));
+  return `
+    <section class="speed-shell">
+      <aside class="speed-rail">
+        <p class="micro">Mini App 6</p>
+        <h1>Tap through a stack.</h1>
+        <p>${escapeHtml(concept.line)}</p>
+        <div class="speed-meter"><span style="width:${progress}%"></span></div>
+        <strong>${progress}% cleared locally</strong>
+      </aside>
+      <article class="speed-card">
+        ${card ? `
+          ${renderVisual(card, "speed-visual")}
+          <div class="speed-copy">
+            <span>${escapeHtml(categoryMeta(card).label)} / ${escapeHtml(sourceName(card))}</span>
+            <h2>${escapeHtml(card.title)}</h2>
+            <p>${escapeHtml(card.why)}</p>
+            <div class="speed-actions">
+              ${actionButton("skip", card, "No", "danger")}
+              ${actionButton("remix", card, "Different", "glass")}
+              ${actionButton("start", card, "Yes", "primary")}
+            </div>
+          </div>
+        ` : emptyPanel()}
+      </article>
+      <div class="speed-queue">
+        ${cards.map((item, index) => `
+          <button class="${String(item.id) === String(card?.id) ? "active" : ""}" data-action="focus" data-card-id="${item.id}">
+            <span>${index + 1}</span>${escapeHtml(clip(item.title, 42))}
+          </button>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderRadar(concept) {
+  const cards = activeCards(10);
+  const focus = focusedCard() || cards[0];
+  const groups = Object.entries(groupByCategory());
+  return `
+    <section class="radar-shell">
+      <div class="radar-intro">
+        <p class="micro">Mini App 7 / loved direction</p>
+        <h1>${escapeHtml(concept.name)}</h1>
+        <p>${escapeHtml(concept.line)}</p>
+        <div class="goal-chips">
+          ${groups.map(([key, items]) => `<span style="--chip:${categoryMeta({ category: key }).color}">${escapeHtml(categoryMeta({ category: key }).label)} ${items.length}</span>`).join("")}
+        </div>
+      </div>
+      <div class="radar-map">
+        <div class="radar-grid"></div>
+        <div class="radar-sweep"></div>
+        ${cards.map((card, index) => {
+          const pos = radarPosition(index, card);
+          return `
+            <button class="radar-blip ${String(card.id) === String(focus?.id) ? "active" : ""}" style="left:${pos.x}%;top:${pos.y}%;--blip:${categoryMeta(card).color}" data-action="focus" data-card-id="${card.id}">
+              <span>${escapeHtml(categoryMeta(card).short)}</span>
+              <strong>${escapeHtml(clip(card.title, 28))}</strong>
+            </button>
+          `;
+        }).join("")}
+        <div class="radar-core">bux</div>
+      </div>
+      <aside class="radar-detail">
+        ${focus ? renderFocusPanel(focus, "Pull into work") : emptyPanel()}
       </aside>
     </section>
   `;
 }
 
-function renderArcade() {
-  const card = focusedCard() || state.cards[0];
+function renderWheel(concept) {
+  const cards = activeCards(10);
+  const card = focusedCard() || cards[0];
   return `
-    <section class="arcade-layout">
-      <div class="scoreboard">
-        <span>combo x${Math.max(1, Math.min(9, state.activity.length + 1))}</span>
-        <strong>${String((state.stats.done || 0) * 100 + state.cards.length * 25).padStart(5, "0")}</strong>
-        <span>${state.cards.length} lives</span>
-      </div>
-      <article class="arcade-card">
-        ${card ? `<h2>${escapeHtml(card.title)}</h2><p>${escapeHtml(card.why || actionPreview(card))}</p>${variantButtons(card)}` : emptyPanel()}
-      </article>
-      <div class="arcade-pad">
-        ${button("skip", card?.id, "Pass")}
-        ${button("context", card?.id, "Power up")}
-        ${button("start", card?.id, "Fire")}
+    <section class="wheel-shell">
+      <header class="wheel-header">
+        <p class="micro">Mini App 8 / roulette discovery</p>
+        <h1>${escapeHtml(concept.name)}</h1>
+        <p>${escapeHtml(concept.line)}</p>
+      </header>
+      <div class="wheel-layout">
+        <div class="wheel" style="--turn:${state.wheelTurns * 38}deg">
+          ${cards.slice(0, 8).map((item, index) => `
+            <button class="wheel-spoke spoke-${index + 1}" data-action="focus" data-card-id="${item.id}">
+              <span>${escapeHtml(categoryMeta(item).short)}</span>
+            </button>
+          `).join("")}
+          <button class="wheel-center" data-action="spin-wheel">Spin</button>
+        </div>
+        <article class="wheel-card">
+          ${card ? `
+            ${renderVisual(card, "wheel-visual")}
+            <span>${escapeHtml(categoryMeta(card).label)}</span>
+            <h2>${escapeHtml(card.title)}</h2>
+            <p>${escapeHtml(card.why)}</p>
+            <div>${actionButton("start", card, "Run this", "primary")}${actionButton("skip", card, "Pass", "dark")}${actionButton("remix", card, "Similar", "glass")}</div>
+          ` : emptyPanel()}
+        </article>
       </div>
     </section>
   `;
 }
 
-function renderTriageLane() {
+function renderGallery(concept) {
+  const cards = activeCards(10);
   return `
-    <section class="triage-layout">
-      <div class="triage-columns">
-        <article><span>Now</span>${topCards(3).map((card) => triageItem(card)).join("") || emptyPanel()}</article>
-        <article><span>Needs context</span>${state.cards.slice(3, 6).map((card) => triageItem(card)).join("") || emptyPanel()}</article>
-        <article><span>Done soon</span>${state.activity.slice(0, 4).map((item) => `<div class="done-item">${escapeHtml(item.title || item.status)}</div>`).join("") || `<div class="done-item">No decisions yet.</div>`}</article>
+    <section class="gallery-shell">
+      <header class="gallery-header">
+        <p class="micro">Mini App 9 / visual first</p>
+        <h1>${escapeHtml(concept.name)}</h1>
+        <p>${escapeHtml(concept.line)}</p>
+      </header>
+      <div class="poster-grid">
+        ${cards.map((card, index) => `
+          <article class="poster-card poster-${(index % 5) + 1}">
+            ${renderVisual(card, "poster-visual")}
+            <div class="poster-caption">
+              <span>${escapeHtml(sourceName(card))}</span>
+              <h2>${escapeHtml(card.title)}</h2>
+              <div>${actionButton("start", card, selectedLabel(card), "primary")}${actionButton("skip", card, "Skip", "quiet")}</div>
+            </div>
+          </article>
+        `).join("") || emptyPanel()}
       </div>
     </section>
   `;
 }
 
-function renderCoach() {
-  const card = focusedCard() || state.cards[0];
+function renderGoalOS(concept) {
+  const grouped = Object.entries(groupByCategory());
+  const focus = focusedCard() || activeCards(1)[0];
   return `
-    <section class="coach-layout">
-      <div class="coach-thread">
-        <div class="bubble agent">I found ${state.cards.length} useful moves. Want the highest-leverage one?</div>
-        ${card ? `
-          <div class="bubble card-bubble">
-            <strong>${escapeHtml(card.title)}</strong>
-            <p>${escapeHtml(card.why || actionPreview(card))}</p>
-            ${variantButtons(card)}
-          </div>
-          <div class="bubble user">Show me the fastest safe action.</div>
-          <div class="bubble agent">I can start private work now and ask again before anything visible.</div>
-        ` : `<div class="bubble agent">No cards yet. Ask me to scan your connected tools.</div>`}
+    <section class="os-shell">
+      <header class="os-header">
+        <div>
+          <p class="micro">Mini App 10 / not chat</p>
+          <h1>${escapeHtml(concept.name)}</h1>
+          <p>${escapeHtml(concept.line)}</p>
+        </div>
+        <button data-action="generate" class="os-scan">Scan for 10</button>
+      </header>
+      <div class="os-grid">
+        <article class="os-card permission">
+          <span>permission boundary</span>
+          <strong>Private work first. Ask before visible side effects.</strong>
+          <p>Buttons feel instant here, then sync to the backend when Telegram auth and writes are available.</p>
+        </article>
+        <article class="os-card cadence">
+          <span>cadence</span>
+          <strong>${state.me?.settings?.cadence || "On demand + scheduled goals"}</strong>
+          <button data-action="autopilot">Start private work</button>
+        </article>
+        <article class="os-card stats">
+          <span>momentum</span>
+          <div class="stat-row"><strong>${activeCards(100).length}</strong><small>open</small></div>
+          <div class="stat-row"><strong>${localActivity().length}</strong><small>local taps</small></div>
+        </article>
+        <article class="os-card focus">
+          ${focus ? renderFocusPanel(focus, "Approve") : emptyPanel()}
+        </article>
+        <article class="os-card goal-list">
+          <span>goals</span>
+          ${grouped.map(([key, items]) => `
+            <button data-action="focus" data-card-id="${items[0]?.id || ""}">
+              <i style="background:${categoryMeta({ category: key }).color}"></i>
+              ${escapeHtml(categoryMeta({ category: key }).label)}
+              <b>${items.length}</b>
+            </button>
+          `).join("")}
+        </article>
       </div>
-      <footer class="coach-composer">
-        <button data-action="generate">Scan</button>
-        <button data-action="context" data-card-id="${card?.id || ""}">Guide it</button>
-        <button data-action="start" data-card-id="${card?.id || ""}">Approve</button>
-      </footer>
     </section>
   `;
 }
 
-function renderActionDock() {
+function renderFocusPanel(card, cta) {
   return `
-    <footer class="global-dock">
-      <button data-action="generate">Generate cards</button>
-      <button data-action="autopilot">Private work</button>
-      <a href="/tinder${params.get("dev") === "1" ? "?dev=1" : ""}">Current app</a>
-    </footer>
-  `;
-}
-
-function renderHeroCard(card, className = "") {
-  return `
-    <article class="hero-card ${className}" data-card-id="${card.id}">
-      <div class="card-glow"></div>
-      <p>${escapeHtml(sourceName(card))}</p>
-      <h2>${escapeHtml(card.title)}</h2>
-      <span>${escapeHtml(clip(card.why || actionPreview(card), 120))}</span>
-      <div class="mini-actions">${variantButtons(card)}${button("start", card.id, selectedLabel(card))}</div>
-    </article>
-  `;
-}
-
-function renderCompactFocus(card, cta) {
-  return `
-    <p class="micro">${escapeHtml(sourceName(card))}</p>
+    ${renderVisual(card, "focus-visual")}
+    <span>${escapeHtml(categoryMeta(card).label)} / ${escapeHtml(sourceName(card))}</span>
     <h2>${escapeHtml(card.title)}</h2>
-    <p>${escapeHtml(card.why || actionPreview(card))}</p>
-    <div class="mini-actions">${variantButtons(card)}${button("start", card.id, cta)}</div>
-  `;
-}
-
-function triageItem(card) {
-  return `
-    <div class="triage-item">
-      <strong>${escapeHtml(card.title)}</strong>
-      <small>${escapeHtml(sourceName(card))}</small>
-      <div>${button("skip", card.id, "Skip")}${button("context", card.id, "Edit")}${button("start", card.id, "Do")}</div>
+    <p>${escapeHtml(card.why)}</p>
+    <div class="focus-actions">
+      ${variantButtons(card)}
+      ${actionButton("start", card, cta, "primary")}
+      ${actionButton("skip", card, "Skip", "dark")}
+      ${actionButton("remix", card, "Remix", "glass")}
     </div>
   `;
 }
 
+function renderVisual(card, className = "") {
+  const visual = card.visual || {};
+  if (visual.kind === "image" && visual.src) {
+    return `<figure class="card-visual ${className}"><img src="${escapeAttr(visual.src)}" alt="" loading="lazy" /></figure>`;
+  }
+  const lines = String(card.image_text || card.title || "BUX\ncard").split(/\n+/).filter(Boolean);
+  const top = lines[0] || categoryMeta(card).label;
+  const bottom = lines.slice(1).join(" ") || clip(card.title, 24);
+  return `
+    <figure class="card-visual visual-fallback ${className}" style="--visual:${categoryMeta(card).color}">
+      <span>${escapeHtml(categoryMeta(card).short)}</span>
+      <strong>${escapeHtml(top)}</strong>
+      <small>${escapeHtml(bottom)}</small>
+    </figure>
+  `;
+}
+
 function variantButtons(card) {
-  const buttons = cardButtons(card).slice(0, 3);
-  if (!buttons.length) return "";
-  return buttons.map((item, index) => `
+  return cardButtons(card).slice(0, 3).map((item, index) => `
     <button class="variant ${selectedIndex(card) === index ? "active" : ""}" data-action="variant" data-card-id="${card.id}" data-index="${index}">
       ${escapeHtml(item.text)}
     </button>
   `).join("");
 }
 
-function button(action, cardId, label) {
-  const disabled = !cardId ? "disabled" : "";
-  return `<button class="action ${action}" data-action="${action}" data-card-id="${cardId || ""}" ${disabled}>${escapeHtml(label || action)}</button>`;
+function actionButton(action, card, label, style = "") {
+  const id = card?.id || "";
+  return `<button class="action ${action} ${style}" data-action="${action}" data-card-id="${id}" ${id ? "" : "disabled"}>${escapeHtml(label || action)}</button>`;
 }
 
-function topCards(limit) {
-  return state.cards.slice(0, limit);
+function activeCards(limit = 100) {
+  const pending = state.cards.filter((card) => !["started", "skipped"].includes(decisionFor(card)?.status));
+  const cards = pending.length ? pending : state.cards;
+  if (!cards.length) return [];
+  const offset = state.conceptId ? (state.conceptId - 1) % cards.length : 0;
+  const rotated = [...cards.slice(offset), ...cards.slice(0, offset)];
+  return rotated.slice(0, limit);
 }
 
 function focusedCard() {
-  return state.cards.find((card) => String(card.id) === String(state.focusCardId)) || state.cards[0] || null;
+  return state.cards.find((card) => String(card.id) === String(state.focusCardId)) || activeCards(1)[0] || null;
+}
+
+function groupByCategory() {
+  return activeCards(100).reduce((acc, card) => {
+    const key = card.category || inferCategory(card);
+    acc[key] ||= [];
+    acc[key].push(card);
+    return acc;
+  }, {});
+}
+
+function categoryMeta(card) {
+  return CATEGORY_META[card.category || inferCategory(card)] || CATEGORY_META.ops;
 }
 
 function selectedIndex(card) {
@@ -461,12 +954,7 @@ function selectedRaw(card) {
 }
 
 function cardButtons(card) {
-  const labels = Array.isArray(card?.buttons) ? card.buttons : [];
-  const prompt = String(card?.action || "").trim();
-  const mapped = labels.map((item) => String(item || "").trim()).filter(Boolean);
-  if (!prompt && !mapped.length) return [];
-  if (!mapped.length) return [{ raw: "Do it", text: "Start" }];
-  return mapped.map((item) => ({ raw: item, text: clip(buttonText(item), 24) }));
+  return ensureButtons(card?.buttons).map((item) => ({ raw: item, text: clip(buttonText(item), 24) }));
 }
 
 function buttonText(value) {
@@ -477,24 +965,81 @@ function buttonText(value) {
     .trim() || "Start";
 }
 
-function primaryBlock(card) {
-  const index = selectedIndex(card);
-  const blocks = Array.isArray(card.blocks) ? card.blocks : [];
-  return blocks[index]?.body || blocks[0]?.body || "";
-}
-
 function sourceName(card) {
   return card.source_label || card.topic_title || card.source || "bux";
 }
 
-function sourceInitial(card) {
-  return sourceName(card).trim().slice(0, 1).toUpperCase() || "B";
+function decisionFor(card) {
+  return state.local.decisions[String(card.id)] || null;
 }
 
-function actionPreview(card) {
-  if (String(card?.source || "").startsWith("miniapp-setup:")) return "Connect this surface, then turn real context into cards.";
-  if (String(card?.source || "").startsWith("miniapp-goal:")) return "Lock this goal and ask the agent to find concrete follow-ups.";
-  return "Private work starts now. Visible side effects still come back for approval.";
+function markDecision(card, status, detail = "") {
+  if (!card) return;
+  state.local.decisions[String(card.id)] = {
+    status,
+    detail,
+    title: card.title,
+    source: sourceName(card),
+    at: Date.now(),
+  };
+  saveLocalState();
+  state.focusCardId = activeCards(1)[0]?.id || state.cards[0]?.id || null;
+}
+
+function localActivity() {
+  return Object.entries(state.local.decisions)
+    .map(([id, item]) => ({ id, ...item }))
+    .sort((a, b) => Number(b.at || 0) - Number(a.at || 0));
+}
+
+function xpScore() {
+  return String(1200 + localActivity().length * 175 + activeCards(100).length * 40).padStart(4, "0");
+}
+
+function spinToNext() {
+  const cards = activeCards(100);
+  if (!cards.length) return null;
+  state.spinIndex = (state.spinIndex + 1) % cards.length;
+  state.focusCardId = cards[state.spinIndex].id;
+  state.local.lastSpin = Date.now();
+  saveLocalState();
+  return cards[state.spinIndex];
+}
+
+function remixCard(card) {
+  const source = DEMO_CARDS[(Date.now() + state.local.cards.length) % DEMO_CARDS.length];
+  const category = card?.category || source.category || "ops";
+  const meta = CATEGORY_META[category] || CATEGORY_META.ops;
+  const copy = {
+    ...source,
+    id: `local-${Date.now()}`,
+    title: card ? `Sharper version: ${clip(card.title, 52)}` : source.title,
+    why: card ? `A generated local remix with a clearer first action for ${sourceName(card)}.` : source.why,
+    source: `miniapp-local:${Date.now()}`,
+    source_label: `${meta.label} remix`,
+    buttons: ensureButtons(card?.buttons || source.buttons),
+    category,
+    demo: true,
+    visual: { kind: "none" },
+    created_at: Math.round(Date.now() / 1000),
+  };
+  state.local.cards.unshift(copy);
+  saveLocalState();
+  state.cards = mergeCards(state.cards.filter((item) => !item.demo || !String(item.id).startsWith("demo-")));
+  state.focusCardId = copy.id;
+  haptic("success");
+  toast("New local idea generated.");
+  render();
+}
+
+function radarPosition(index, card) {
+  const seed = Array.from(String(card.id)).reduce((sum, char) => sum + char.charCodeAt(0), index * 17);
+  const angle = ((seed * 47) % 360) * (Math.PI / 180);
+  const radius = 18 + ((seed * 19) % 34);
+  return {
+    x: Math.round(50 + Math.cos(angle) * radius),
+    y: Math.round(50 + Math.sin(angle) * radius),
+  };
 }
 
 function relative(ts) {
@@ -520,84 +1065,135 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function escapeAttr(value) {
+  return escapeHtml(value).replaceAll("'", "&#39;");
+}
+
 function toast(message) {
   toastEl.textContent = message;
   toastEl.classList.add("show");
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => toastEl.classList.remove("show"), 1800);
+  toast.timer = setTimeout(() => toastEl.classList.remove("show"), 2100);
+}
+
+function haptic(kind = "light") {
+  try {
+    if (kind === "selectionChanged") tg?.HapticFeedback?.selectionChanged?.();
+    else if (kind === "success") tg?.HapticFeedback?.notificationOccurred?.("success");
+    else tg?.HapticFeedback?.impactOccurred?.(kind);
+  } catch {
+    // Haptics are optional outside Telegram.
+  }
 }
 
 function emptyPanel() {
-  return `<article class="empty-panel"><strong>No cards yet</strong><p>Generate cards or connect a tool to fill this prototype with real work.</p></article>`;
+  return `<article class="empty-panel"><strong>No cards yet</strong><p>Spin, generate, or connect a tool to fill this prototype.</p></article>`;
 }
 
-async function startCard(card) {
-  await api(`/api/cards/${card.id}/start`, {
+function syncStart(card) {
+  if (!initData || card.demo) return;
+  api(`/api/cards/${card.id}/start`, {
     method: "POST",
     body: JSON.stringify({ button: selectedRaw(card) }),
-  });
-  toast("Started.");
-  await refresh();
+  })
+    .then(() => refresh())
+    .catch(() => toast("Saved locally. Backend write did not accept it yet."));
 }
 
-async function dismissCard(card) {
-  await api(`/api/cards/${card.id}/dismiss`, { method: "POST", body: "{}" });
-  toast("Skipped.");
-  await refresh();
+function syncSkip(card) {
+  if (!initData || card.demo) return;
+  api(`/api/cards/${card.id}/dismiss`, { method: "POST", body: "{}" })
+    .then(() => refresh())
+    .catch(() => toast("Skipped locally. Backend write did not accept it yet."));
 }
 
-async function addContext(card) {
-  const comment = window.prompt("What should the agent optimize for?");
-  if (!comment?.trim()) return;
-  await api(`/api/cards/${card.id}/comment`, {
+function syncComment(card, comment) {
+  if (!initData || card.demo) return;
+  api(`/api/cards/${card.id}/comment`, {
     method: "POST",
-    body: JSON.stringify({ comment: comment.trim() }),
-  });
-  toast("Context sent.");
-  await refresh();
+    body: JSON.stringify({ comment }),
+  }).catch(() => toast("Note saved locally. Backend write did not accept it yet."));
 }
 
-app.addEventListener("click", async (event) => {
+app.addEventListener("click", (event) => {
   const target = event.target.closest("[data-action]");
   if (!target) return;
   const action = target.dataset.action;
   const cardId = target.dataset.cardId;
   const card = state.cards.find((item) => String(item.id) === String(cardId));
-  try {
-    if (action === "focus" && card) {
-      state.focusCardId = card.id;
-      render();
-    } else if (action === "variant" && card) {
-      state.selected[String(card.id)] = Number(target.dataset.index || 0);
-      state.focusCardId = card.id;
-      render();
-    } else if (action === "start" && card) {
-      await startCard(card);
-    } else if (action === "skip" && card) {
-      await dismissCard(card);
-    } else if (action === "context" && card) {
-      await addContext(card);
-    } else if (action === "generate") {
-      await api("/api/generate", { method: "POST", body: "{}" });
-      toast("Scan requested.");
-    } else if (action === "autopilot") {
-      await api("/api/autopilot", { method: "POST", body: "{}" });
-      toast("Private work requested.");
+
+  if (action === "focus" && card) {
+    state.focusCardId = card.id;
+    haptic("selectionChanged");
+    render();
+    return;
+  }
+  if (action === "variant" && card) {
+    state.selected[String(card.id)] = Number(target.dataset.index || 0);
+    state.focusCardId = card.id;
+    haptic("selectionChanged");
+    render();
+    return;
+  }
+  if (action === "start" && card) {
+    markDecision(card, "started", selectedRaw(card));
+    haptic("success");
+    toast(`Started: ${selectedLabel(card)}`);
+    render();
+    syncStart(card);
+    return;
+  }
+  if (action === "skip" && card) {
+    markDecision(card, "skipped", "skip");
+    haptic("medium");
+    toast("Skipped. Next card loaded.");
+    render();
+    syncSkip(card);
+    return;
+  }
+  if (action === "context" && card) {
+    const comment = window.prompt("What should the agent optimize for?", "Make it more concrete and visual.");
+    if (!comment?.trim()) return;
+    state.local.notes[String(card.id)] = [...(state.local.notes[String(card.id)] || []), comment.trim()];
+    saveLocalState();
+    haptic("success");
+    toast("Tuning note saved.");
+    syncComment(card, comment.trim());
+    return;
+  }
+  if (action === "remix") {
+    remixCard(card);
+    return;
+  }
+  if (action === "spin" || action === "spin-global") {
+    const next = spinToNext();
+    haptic("heavy");
+    toast(next ? `Spun: ${clip(next.title, 42)}` : "No cards to spin.");
+    render();
+    return;
+  }
+  if (action === "spin-wheel") {
+    state.wheelTurns += 1;
+    const next = spinToNext();
+    haptic("heavy");
+    toast(next ? `Wheel picked: ${clip(next.title, 42)}` : "No cards to spin.");
+    render();
+    return;
+  }
+  if (action === "generate") {
+    remixCard(focusedCard());
+    if (initData) {
+      api("/api/generate", { method: "POST", body: "{}" }).catch(() => {});
     }
-  } catch (error) {
-    toast(error.message);
+    return;
+  }
+  if (action === "autopilot") {
+    haptic("success");
+    toast("Private work staged.");
+    if (initData) {
+      api("/api/autopilot", { method: "POST", body: "{}" }).catch(() => {});
+    }
   }
 });
 
-try {
-  await refresh();
-} catch (error) {
-  document.body.className = "auth-failed";
-  app.innerHTML = `
-    <section class="auth-card">
-      <p class="micro">secure mini app</p>
-      <h1>${!initData ? "Open from Telegram" : "Could not load prototypes"}</h1>
-      <p>${escapeHtml(!initData ? "Reopen this from the Telegram bot so the session can be verified." : error.message)}</p>
-    </section>
-  `;
-}
+await refresh();

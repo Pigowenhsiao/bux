@@ -332,9 +332,8 @@ def _card_video_path(row: dict[str, Any]) -> str:
 
 
 def _card_visual(row: dict[str, Any]) -> dict[str, str]:
-    source = str(row.get("source") or "")
     image_url = (row.get("image_url") or "").strip()
-    if source.startswith("miniapp-goal:") or "placehold.co/" in image_url:
+    if "placehold.co/" in image_url:
         return {"kind": "none"}
     if image_url.lower().split("?", 1)[0].endswith((".mp4", ".mov", ".webm")):
         return {"kind": "video", "src": image_url}
@@ -354,7 +353,7 @@ def _card_visual(row: dict[str, Any]) -> dict[str, str]:
     image_data_url = _image_data_url(row.get("image_file"))
     if image_data_url:
         return {"kind": "image", "src": image_data_url}
-    if image_url.startswith(("https://", "http://")):
+    if image_url.startswith(("https://", "http://", "data:image/")):
         return {"kind": "image", "src": image_url}
     return {"kind": "none"}
 
@@ -640,15 +639,19 @@ STARTER_IDEAS: list[dict[str, Any]] = [
             "Inspect concrete context across connected tools and generate cards that improve distribution, activation, retention, or revenue. "
             "Avoid generic growth brainstorming. Name the real person, repo, PR, post, signup, or launch moment."
         ),
-        "buttons": ["Lock goal", "Find warm openings"],
+        "buttons": ["Lock growth goal", "Find warm openings", "Make 10 cards"],
         "blocks": [
             {
-                "title": "Lock goal",
+                "title": "Lock growth goal",
                 "body": "Save growth as the standing goal, then inspect connected context before posting follow-up cards.",
             },
             {
                 "title": "Find warm openings",
                 "body": "Look for named people, signups, messages, launches, and posts that could turn into distribution opportunities.",
+            },
+            {
+                "title": "Make 10 cards",
+                "body": "Generate a fresh visual batch of concrete growth opportunities for the Mini App feed.",
             },
         ],
         "image_text": "GROWTH\nreal openings",
@@ -663,18 +666,148 @@ STARTER_IDEAS: list[dict[str, Any]] = [
             "Inspect concrete incidents, repos, logs, PRs, metrics, and alerts. "
             "Generate cards that name the exact failing thing, the likely next step, and what the user can approve in one tap."
         ),
-        "buttons": ["Lock goal", "Find the next fix"],
+        "buttons": ["Lock quality goal", "Find the next fix", "Set up monitor"],
         "blocks": [
             {
-                "title": "Lock goal",
+                "title": "Lock quality goal",
                 "body": "Save quality and monitoring as the standing goal, then inspect concrete repos, logs, checks, and incidents.",
             },
             {
                 "title": "Find the next fix",
                 "body": "Look for failing checks, bug reports, noisy alerts, or regressions that can become one-tap cards.",
             },
+            {
+                "title": "Set up monitor",
+                "body": "Create a recurring watcher that posts only concrete failures, regressions, or flaky checks.",
+            },
         ],
         "image_text": "LESS BUGS\nless thinking",
+    },
+    {
+        "source": "miniapp-setup:calendar",
+        "title": "Prep every meeting before it starts",
+        "description": "Turn the calendar into short briefs with attendees, last context, likely decisions, and follow-ups.",
+        "prompt": (
+            "Mini App setup card accepted.\n\n"
+            "Help the user connect Calendar. If Calendar is already connected, inspect upcoming events and create concrete meeting prep cards. "
+            "Each card should name the meeting, attendees, and the decision or prep artifact the agent can draft."
+        ),
+        "buttons": ["Connect Calendar", "Prep next meeting", "Daily agenda"],
+        "blocks": [
+            {
+                "title": "Connect Calendar",
+                "body": "Send the connection step, verify OAuth, then replace this with real upcoming meeting cards.",
+            },
+            {
+                "title": "Prep next meeting",
+                "body": "Build a brief for the next meeting using attendees, prior messages, docs, and open decisions.",
+            },
+            {
+                "title": "Daily agenda",
+                "body": "Schedule a morning agenda that only includes meetings needing preparation or a decision.",
+            },
+        ],
+        "image_text": "CALENDAR\nwalk in ready",
+    },
+    {
+        "source": "miniapp-goal:startup-brief",
+        "title": "Create a daily startup command brief",
+        "description": "Wake up to one tight feed of metrics, blocked work, customer replies, risky PRs, and opportunities.",
+        "prompt": (
+            "Goal-lock card accepted from the Mini App.\n\n"
+            "Create a recurring startup command brief. Inspect connected tools and generate cards for the concrete metrics, blockers, customer messages, PRs, incidents, and growth opportunities that changed since the last brief."
+        ),
+        "buttons": ["Set 9am brief", "Show sample brief", "Pick sources"],
+        "blocks": [
+            {
+                "title": "Set 9am brief",
+                "body": "Schedule a daily PT briefing that posts actionable cards rather than a long summary.",
+            },
+            {
+                "title": "Show sample brief",
+                "body": "Generate a preview with real or clearly marked sample sections: money, users, bugs, shipping, people.",
+            },
+            {
+                "title": "Pick sources",
+                "body": "Ask which surfaces should feed the brief: Gmail, Slack, GitHub, Linear, Calendar, analytics, or docs.",
+            },
+        ],
+        "image_text": "9AM BRIEF\nrun the day",
+    },
+    {
+        "source": "miniapp-goal:customer-radar",
+        "title": "Spot customers who need attention",
+        "description": "Find churn risk, warm leads, unanswered asks, and expansion openings across email, Slack, and CRM notes.",
+        "prompt": (
+            "Goal-lock card accepted from the Mini App.\n\n"
+            "Build a customer attention radar. Inspect connected communication and product surfaces, then create cards that name exact customers, threads, risks, and next actions."
+        ),
+        "buttons": ["Start radar", "Find churn risk", "Find warm leads"],
+        "blocks": [
+            {
+                "title": "Start radar",
+                "body": "Create a recurring scan for customers who need a reply, escalation, renewal push, or founder attention.",
+            },
+            {
+                "title": "Find churn risk",
+                "body": "Look for complaint language, delayed replies, unresolved bugs, usage drops, or silent stakeholders.",
+            },
+            {
+                "title": "Find warm leads",
+                "body": "Surface people already showing intent through replies, signups, invites, PRs, docs, or product usage.",
+            },
+        ],
+        "image_text": "CUSTOMERS\nwho needs you",
+    },
+    {
+        "source": "miniapp-goal:launch-engine",
+        "title": "Run a launch from idea to follow-up",
+        "description": "Make the agent draft launch copy, prepare checklists, watch reactions, and chase the best replies.",
+        "prompt": (
+            "Goal-lock card accepted from the Mini App.\n\n"
+            "Start a launch engine. Ask for or infer the launch target, then create concrete cards for copy, assets, checklist, posting, reaction monitoring, and follow-up."
+        ),
+        "buttons": ["Plan launch", "Draft copy", "Watch reactions"],
+        "blocks": [
+            {
+                "title": "Plan launch",
+                "body": "Create a launch checklist with concrete channels, assets, blockers, and owner-approved visible actions.",
+            },
+            {
+                "title": "Draft copy",
+                "body": "Draft short launch copy variants for X, LinkedIn, email, community, and customer follow-up.",
+            },
+            {
+                "title": "Watch reactions",
+                "body": "After launch, monitor replies, mentions, signups, and support issues and turn them into cards.",
+            },
+        ],
+        "image_text": "LAUNCH\nmake noise",
+    },
+    {
+        "source": "miniapp-goal:deep-work-protector",
+        "title": "Protect two hours of deep work",
+        "description": "Let the agent mute low-value pings, batch replies, and only interrupt for decisions that matter.",
+        "prompt": (
+            "Goal-lock card accepted from the Mini App.\n\n"
+            "Create a deep-work protection loop. Identify interruptions across connected surfaces, batch low-value replies, and surface only urgent decisions as approval cards."
+        ),
+        "buttons": ["Start focus block", "Batch replies", "Only urgent"],
+        "blocks": [
+            {
+                "title": "Start focus block",
+                "body": "Ask for the time window if unknown, then monitor messages quietly and report only urgent decisions.",
+            },
+            {
+                "title": "Batch replies",
+                "body": "Draft low-risk replies for later review instead of interrupting one by one.",
+            },
+            {
+                "title": "Only urgent",
+                "body": "Define urgent as a named blocker, customer escalation, production issue, or time-sensitive decision.",
+            },
+        ],
+        "image_text": "FOCUS\nprotect 2h",
     },
 ]
 
@@ -687,7 +820,51 @@ STARTER_ACCEPTANCE_SUFFIX = (
 
 
 def _starter_image_url(text: str) -> str:
-    return ""
+    raw = str(text or "BUX\ncard").strip() or "BUX\ncard"
+    lines = [line.strip() for line in raw.splitlines() if line.strip()][:3] or ["BUX", "card"]
+    digest = hashlib.sha256(raw.encode()).digest()
+    palettes = [
+        ("#ff4d6d", "#ffd166", "#171321"),
+        ("#16db93", "#35a7ff", "#06281f"),
+        ("#f97316", "#fef3c7", "#241307"),
+        ("#8b5cf6", "#22d3ee", "#120b2d"),
+        ("#111827", "#94a3b8", "#f8fafc"),
+        ("#f43f5e", "#0f172a", "#fff7ed"),
+        ("#65a30d", "#bef264", "#10220a"),
+        ("#0891b2", "#cffafe", "#082f49"),
+    ]
+    c1, c2, ink = palettes[digest[0] % len(palettes)]
+    angle = 25 + digest[1] % 45
+    safe_lines = [html.escape(line[:24]) for line in lines]
+    text_nodes = []
+    for index, line in enumerate(safe_lines):
+        size = 118 if index == 0 else 72
+        y = 560 + index * 108
+        text_nodes.append(
+            f'<text x="64" y="{y}" font-family="Arial Black, Arial, sans-serif" '
+            f'font-size="{size}" font-weight="900" letter-spacing="-4" fill="{ink}">{line}</text>'
+        )
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200">'
+        "<defs>"
+        f'<linearGradient id="g" x1="0" y1="0" x2="{angle}%" y2="100%">'
+        f'<stop offset="0" stop-color="{c1}"/><stop offset="1" stop-color="{c2}"/>'
+        "</linearGradient>"
+        '<pattern id="grid" width="56" height="56" patternUnits="userSpaceOnUse">'
+        f'<path d="M56 0H0v56" fill="none" stroke="{ink}" stroke-opacity=".10" stroke-width="3"/>'
+        "</pattern>"
+        "</defs>"
+        '<rect width="900" height="1200" rx="58" fill="url(#g)"/>'
+        '<rect width="900" height="1200" rx="58" fill="url(#grid)"/>'
+        f'<circle cx="{120 + digest[2]}" cy="{180 + digest[3]}" r="{190 + digest[4] % 110}" fill="{ink}" opacity=".12"/>'
+        f'<circle cx="{570 + digest[5]}" cy="{760 + digest[6]}" r="{230 + digest[7] % 120}" fill="#fff" opacity=".20"/>'
+        f'<path d="M540 170c140 78 226 190 258 340-92-46-184-64-276-54-48-106-42-204 18-286z" fill="{ink}" opacity=".12"/>'
+        f'<text x="64" y="142" font-family="Arial, sans-serif" font-size="36" font-weight="900" letter-spacing="8" fill="{ink}" opacity=".62">BUX ACTION</text>'
+        + "".join(text_nodes)
+        + f'<text x="68" y="1088" font-family="Arial, sans-serif" font-size="32" font-weight="800" fill="{ink}" opacity=".72">tap, skip, remix, automate</text>'
+        "</svg>"
+    )
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
 
 
 def _ensure_starter_cards() -> None:
@@ -708,6 +885,7 @@ def _ensure_starter_cards() -> None:
                 prompt=str(idea["prompt"]) + STARTER_ACCEPTANCE_SUFFIX,
                 buttons=list(idea.get("buttons") or ["Start this"]),
                 blocks=list(idea.get("blocks") or []),
+                image_url=_starter_image_url(str(idea.get("image_text") or idea["title"])),
                 chat_id=chat_id,
                 thread_id=0,
                 spawn_topic=False,
