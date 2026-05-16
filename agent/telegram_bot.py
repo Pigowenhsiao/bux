@@ -5123,16 +5123,22 @@ class Bot:
                     markdown=True,
                 )
                 return
+            label = "Open Agency"
+            prompt = "Open Agency."
+            if cmd == "/miniapp":
+                url = url.rstrip("/") + "/mini-apps"
+                label = "Open 10 prototypes"
+                prompt = "Open Mini App Lab."
             separator = "&" if "?" in url else "?"
             url = f"{url}{separator}v=20260512x41"
             web_app_markup = {
-                "inline_keyboard": [[{"text": "Open Agency", "web_app": {"url": url}}]]
+                "inline_keyboard": [[{"text": label, "web_app": {"url": url}}]]
             }
             chat_type = str((msg.get("chat") or {}).get("type") or "")
             if chat_type == "private":
                 self.send(
                     chat_id,
-                    "Open Agency.",
+                    prompt,
                     reply_to=mid,
                     thread_id=thread_id,
                     reply_markup=web_app_markup,
@@ -5148,7 +5154,7 @@ class Bot:
                 try:
                     self.send(
                         int(owner_user_id),
-                        "Open Agency.",
+                        prompt,
                         reply_markup=web_app_markup,
                     )
                     sent_dm = True

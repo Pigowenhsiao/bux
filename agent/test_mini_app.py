@@ -208,6 +208,27 @@ class MiniAppTest(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_concept_routes_serve_all_ten_prototype_shells(self) -> None:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), self.app.MiniAppHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        try:
+            for route in ["/mini-apps", "/mini-app-1", "/mini-app-10", "/miniapp/7"]:
+                with urllib.request.urlopen(base + route, timeout=5) as res:
+                    body = res.read().decode()
+                    content_type = res.headers.get("Content-Type", "")
+                self.assertIn("text/html", content_type)
+                self.assertIn("bux prototypes", body)
+                self.assertIn("/concepts.js", body)
+
+            for asset in ["/concepts.css", "/concepts.js"]:
+                with urllib.request.urlopen(base + asset, timeout=5) as res:
+                    self.assertEqual(res.status, 200)
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_activity_endpoint_returns_recent_resolutions(self) -> None:
         with self.agency_db.conn() as db:
             accepted_id = self.agency_db.insert(
