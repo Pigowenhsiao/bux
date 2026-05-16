@@ -534,66 +534,69 @@ def _source_url(row: dict[str, Any]) -> str:
 
 STARTER_IDEAS: list[dict[str, Any]] = [
     {
-        "source": "miniapp-goal:make-bux-successful",
-        "title": "Goal: make bux successful",
-        "description": "Build the product into a reliable 24/7 personal agent box that users keep using.",
+        "source": "miniapp-setup:gmail",
+        "title": "Connect Gmail for one-tap replies",
+        "description": "Let the feed draft email replies, spot inbox obligations, and surface who needs you next.",
         "prompt": (
-            "Goal-lock card accepted from the Mini App.\n\n"
-            "Save this as a high-level Agency goal: make bux successful. "
-            "Then inspect concrete connected context and create cards that improve activation, retention, distribution, product quality, or trust. "
-            "Do reversible/internal work first and ask only before visible or hard-to-revert actions."
+            "Mini App setup card accepted.\n\n"
+            "Help the user connect Gmail to bux. If Gmail is already connected, verify it and immediately create concrete email follow-up cards from real inbox context. "
+            "If it is not connected, send the exact next step and keep the explanation short. "
+            "Once connected, surface concrete one-tap cards tied to real threads instead of generic inbox advice."
         ),
-        "buttons": ["Lock goal"],
-        "image_text": "MAKE BUX\nsuccessful",
+        "buttons": ["Set up Gmail"],
+        "image_text": "GMAIL\nreply faster",
     },
     {
-        "source": "miniapp-goal:get-more-users",
-        "title": "Goal: reach 1000 users",
-        "description": "Find real distribution openings, draft assets, and ask only before public posts or messages.",
+        "source": "miniapp-setup:slack",
+        "title": "Connect Slack for urgent threads",
+        "description": "Watch who needs a reply, draft responses, and turn noisy channels into a short action queue.",
         "prompt": (
-            "Goal-lock card accepted from the Mini App.\n\n"
-            "Save this as a high-level Agency goal: reach 1000 users. "
-            "Scan for specific launch moments, communities, posts, signups, warm intros, and demo angles. "
-            "Draft assets before asking; stop at sending, posting, purchasing, or external changes."
+            "Mini App setup card accepted.\n\n"
+            "Help the user connect Slack to bux. If Slack is already connected, verify it and create concrete cards from real channels, DMs, mentions, or follow-ups. "
+            "If it is not connected, guide the user through the exact next step with no filler. "
+            "After setup, keep suggestions tied to named people, channels, or threads."
         ),
-        "buttons": ["Lock goal"],
-        "image_text": "1000 USERS\ndraft first",
+        "buttons": ["Set up Slack"],
+        "image_text": "SLACK\nclear threads",
     },
     {
-        "source": "miniapp-goal:make-agency-useful",
-        "title": "Goal: make Agency useful every day",
-        "description": "Keep the feed concrete, visual when helpful, and tied to what the user already cares about.",
+        "source": "miniapp-setup:github",
+        "title": "Connect GitHub for PR and CI cards",
+        "description": "Turn repos, reviews, and failing checks into swipeable actions instead of inbox noise.",
         "prompt": (
-            "Goal-lock card accepted from the Mini App.\n\n"
-            "Save this as a high-level Agency goal: make Agency mode useful every day. "
-            "Read goals and Agency history, avoid repeated skipped themes, and generate only cards tied to a concrete source object."
+            "Mini App setup card accepted.\n\n"
+            "Help the user connect GitHub to bux. If GitHub is already connected, verify it and generate concrete repo, PR, review, or CI cards from real current work. "
+            "If it is not connected, give the exact connect step and keep it brief. "
+            "After setup, prefer cards that unblock shipping, bug fixes, or monitoring."
         ),
-        "buttons": ["Lock goal"],
-        "image_text": "USEFUL FEED\nconcrete cards",
+        "buttons": ["Set up GitHub"],
+        "image_text": "GITHUB\nship faster",
     },
     {
-        "source": "miniapp-goal:stay-healthy-relationships",
-        "title": "Goal: stay healthy and keep relationships warm",
-        "description": "Suggest low-friction actions for energy, focus, fitness, and important people.",
+        "source": "miniapp-goal:growth-engine",
+        "title": "Lock a growth goal",
+        "description": "Ask the agent to chase distribution, activation, launches, and warm intros with real concrete follow-ups.",
         "prompt": (
             "Goal-lock card accepted from the Mini App.\n\n"
-            "Save this as a high-level Agency goal: stay healthy and keep relationships warm. "
-            "Look for practical, specific opportunities and draft messages before asking to send anything."
+            "Save this as a high-level Agency goal: grow the business. "
+            "Inspect concrete context across connected tools and generate cards that improve distribution, activation, retention, or revenue. "
+            "Avoid generic growth brainstorming. Name the real person, repo, PR, post, signup, or launch moment."
         ),
         "buttons": ["Lock goal"],
-        "image_text": "HEALTH + PEOPLE\nsmall moves",
+        "image_text": "GROWTH\nreal openings",
     },
     {
-        "source": "miniapp-goal:plan-incredible-trip",
-        "title": "Goal: plan an incredible trip",
-        "description": "Research routes, stays, schedules, and tradeoffs; ask before bookings or payments.",
+        "source": "miniapp-goal:ship-quality",
+        "title": "Lock a quality and monitoring goal",
+        "description": "Reduce bugs, keep services healthy, and surface the next fix or check before it becomes painful.",
         "prompt": (
             "Goal-lock card accepted from the Mini App.\n\n"
-            "Save this as a high-level Agency goal: plan an incredible trip. "
-            "Research concrete options, prepare itineraries and booking drafts, and ask before purchases, reservations, or external messages."
+            "Save this as a high-level Agency goal: reduce bugs and improve monitoring. "
+            "Inspect concrete incidents, repos, logs, PRs, metrics, and alerts. "
+            "Generate cards that name the exact failing thing, the likely next step, and what the user can approve in one tap."
         ),
         "buttons": ["Lock goal"],
-        "image_text": "TRIP PLAN\noptions ready",
+        "image_text": "LESS BUGS\nless thinking",
     },
 ]
 
@@ -766,6 +769,49 @@ def _stats() -> dict[str, int]:
             db.execute("SELECT COUNT(*) AS n FROM card_comments").fetchone()["n"]
         )
     return out
+
+
+def _activity(limit: int = 18) -> list[dict[str, Any]]:
+    with agency_db.conn() as db:
+        rows = db.execute(
+            """
+            SELECT id, title, description, source, source_label, source_url, status,
+                   decision, updated_at, worker_topic_id, tg_thread_id, tg_chat_id
+              FROM suggestions
+             WHERE status != 'pending'
+             ORDER BY updated_at DESC, id DESC
+             LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    items: list[dict[str, Any]] = []
+    for raw in rows:
+        row = dict(raw)
+        thread_id = int(row.get("worker_topic_id") or row.get("tg_thread_id") or 0)
+        chat_id = int(row.get("tg_chat_id") or 0)
+        items.append(
+            {
+                "id": int(row["id"]),
+                "title": _clip_text(_clean_mobile_text(row.get("title") or ""), 80),
+                "summary": _clip_text(_clean_mobile_text(row.get("description") or ""), 120),
+                "status": str(row.get("status") or ""),
+                "decision": _clip_text(_clean_mobile_text(row.get("decision") or ""), 40),
+                "source": str(row.get("source") or ""),
+                "source_label": _clip_text(_clean_mobile_text(row.get("source_label") or ""), 28),
+                "source_url": _source_url(row),
+                "thread_id": thread_id,
+                "thread_title": _thread_title(
+                    {
+                        "tg_chat_id": chat_id,
+                        "tg_thread_id": thread_id,
+                        "title": row.get("title") or "",
+                        "source": row.get("source") or "",
+                    }
+                ),
+                "updated_at": int(row.get("updated_at") or 0),
+            }
+        )
+    return items
 
 
 def _write_setting(key: str, value: str, user: dict[str, Any]) -> None:
@@ -1140,6 +1186,23 @@ def _dispatch_card_context(row: dict[str, Any], comment: str, user: dict[str, An
     return _dispatch_topic_context(chat_id, thread_id, comment, user, reply_to=reply_to)
 
 
+def _delete_telegram_card(row: dict[str, Any]) -> bool:
+    chat_id = int(row.get("tg_chat_id") or 0)
+    message_id = int(row.get("tg_message_id") or 0)
+    if not chat_id or not message_id:
+        return False
+    try:
+        import telegram_bot
+
+        env = _tg_env()
+        bot = telegram_bot.Bot(env["TG_BOT_TOKEN"], env.get("TG_SETUP_TOKEN", ""))
+        res = bot.call("deleteMessage", chat_id=chat_id, message_id=message_id)
+        return bool(res.get("ok", True))
+    except Exception as exc:
+        print(f"bux-miniapp: telegram card delete failed: {exc}", file=sys.stderr)
+        return False
+
+
 def _find_suggestion(suggestion_id: int) -> dict[str, Any] | None:
     with agency_db.conn() as db:
         row = db.execute("SELECT * FROM suggestions WHERE id = ?", (suggestion_id,)).fetchone()
@@ -1385,6 +1448,13 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             except PermissionError as exc:
                 _json_response(self, 401, {"error": str(exc)})
             return
+        if path == "/api/activity":
+            try:
+                _auth_user(self)
+                _json_response(self, 200, {"activity": _activity()})
+            except PermissionError as exc:
+                _json_response(self, 401, {"error": str(exc)})
+            return
         if path in ("/", "/tinder"):
             path = "/tinder.html"
         if path == "/favicon.ico":
@@ -1624,7 +1694,8 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                         agency_db.set_status(db, suggestion_id, "dismissed")
                     _append_event(suggestion_id, "dismiss", user)
                     _append_dismiss_feedback(row, user)
-                    _json_response(self, 200, {"ok": True})
+                    synced = _delete_telegram_card(row)
+                    _json_response(self, 200, {"ok": True, "synced": synced})
                     return
                 if action == "different":
                     detail = (body.get("comment") or "").strip()
@@ -1638,7 +1709,12 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                     _append_event(suggestion_id, "start", user, button_label)
                     result = _start_agent_work(suggestion_id, user, button_label)
                     status = 200 if result.get("started") else 409
-                    _json_response(self, status, {"ok": bool(result.get("started")), **result})
+                    synced = _delete_telegram_card(row) if result.get("started") else False
+                    _json_response(
+                        self,
+                        status,
+                        {"ok": bool(result.get("started")), "synced": synced, **result},
+                    )
                     return
             if len(path) == 4 and path[:2] == ["api", "topics"] and path[3] == "context":
                 thread_id = int(path[2])

@@ -107,11 +107,11 @@ class MiniAppTest(unittest.TestCase):
         first = self.app._cards()
         second = self.app._cards()
 
-        starter_cards = [card for card in first if str(card["source"]).startswith("miniapp-goal:")]
+        starter_cards = [card for card in first if str(card["source"]).startswith("miniapp-")]
         self.assertEqual(len(starter_cards), len(self.app.STARTER_IDEAS))
         self.assertEqual(
-            sorted(card["id"] for card in first if str(card["source"]).startswith("miniapp-goal:")),
-            sorted(card["id"] for card in second if str(card["source"]).startswith("miniapp-goal:")),
+            sorted(card["id"] for card in first if str(card["source"]).startswith("miniapp-")),
+            sorted(card["id"] for card in second if str(card["source"]).startswith("miniapp-")),
         )
         self.assertTrue(starter_cards[0]["buttons"])
         self.assertEqual(starter_cards[0]["visual"]["kind"], "none")
@@ -206,6 +206,39 @@ class MiniAppTest(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_activity_endpoint_returns_recent_resolutions(self) -> None:
+        with self.agency_db.conn() as db:
+            accepted_id = self.agency_db.insert(
+                db,
+                title="Ship the release",
+                description="Release candidate is ready.",
+                importance="high",
+                source="github-release",
+                source_label="GitHub",
+            )
+            dismissed_id = self.agency_db.insert(
+                db,
+                title="Monitor generic Slack chatter",
+                description="Too vague.",
+                importance="low",
+                source="slack",
+                source_label="Slack",
+            )
+            self.agency_db.set_status(db, accepted_id, "accepted")
+            self.agency_db.set_status(db, dismissed_id, "dismissed")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), self.app.MiniAppHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        try:
+            activity = self._request(base + "/api/activity")
+            self.assertEqual(activity["activity"][0]["status"], "dismissed")
+            self.assertEqual(activity["activity"][1]["status"], "accepted")
+            self.assertEqual(activity["activity"][1]["title"], "Ship the release")
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_topic_generate_prompt_includes_decision_history(self) -> None:
         with self.agency_db.conn() as db:
             accepted_id = self.agency_db.insert(
@@ -274,6 +307,7 @@ class MiniAppTest(unittest.TestCase):
                 thread_id=123,
                 prompt="Do the work",
             )
+            self.agency_db.update_message(db, suggestion_id, 987)
 
         result = self.app._start_agent_work(suggestion_id, {"id": 42, "first_name": "Magnus"})
         deadline = time.time() + 2
@@ -296,6 +330,42 @@ class MiniAppTest(unittest.TestCase):
             ).fetchone()
         self.assertEqual(row["status"], "accepted")
         self.assertEqual(row["worker_topic_id"], 777)
+
+    def test_dismiss_api_deletes_original_telegram_card_for_sync(self) -> None:
+        calls: list[tuple[str, dict]] = []
+
+        class FakeBot:
+            def __init__(self, token: str, setup_token: str) -> None:
+                self.token = token
+                self.setup_token = setup_token
+
+            def call(self, method: str, **params: object) -> dict:
+                calls.append((method, dict(params)))
+                return {"ok": True, "result": {}}
+
+        sys.modules["telegram_bot"] = types.SimpleNamespace(Bot=FakeBot)
+        with self.agency_db.conn() as db:
+            suggestion_id = self.agency_db.insert(
+                db,
+                title="Dismiss me",
+                description="",
+                chat_id=100,
+                thread_id=123,
+                prompt="Do the work",
+            )
+            self.agency_db.update_message(db, suggestion_id, 456)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), self.app.MiniAppHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        try:
+            result = self._request(f"{base}/api/cards/{suggestion_id}/dismiss", method="POST", body={})
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["synced"])
+            self.assertIn(("deleteMessage", {"chat_id": 100, "message_id": 456}), calls)
+        finally:
+            server.shutdown()
+            server.server_close()
 
     def test_start_dispatch_applies_miniapp_provider_setting(self) -> None:
         runs: list[tuple[tuple[int, int], str]] = []

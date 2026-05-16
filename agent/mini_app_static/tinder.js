@@ -7,29 +7,41 @@ if (params.get("dev") === "1") localStorage.buxMiniAppDev = "1";
 const initData = tg?.initData || (localStorage.buxMiniAppDev === "1" ? "dev" : "");
 const goalKey = "buxTinderGoalId";
 const indexKey = "buxTinderIndex";
+const variantKey = "buxTinderVariants";
 
 const state = {
   cards: [],
   goals: [],
   topics: [],
   stats: {},
+  activity: [],
+  me: { settings: {} },
   activeGoalId: localStorage.getItem(goalKey) || "all",
   railCollapsed: localStorage.getItem("buxTinderRailCollapsed") === "1",
   index: Number(localStorage.getItem(indexKey) || "0"),
   started: Number(localStorage.getItem("buxTinderStarted") || "0"),
   skipped: Number(localStorage.getItem("buxTinderSkipped") || "0"),
+  variants: JSON.parse(localStorage.getItem(variantKey) || "{}"),
 };
 
 const els = {
   rail: document.querySelector("#goalRail"),
   tabs: document.querySelector("#goalTabs"),
+  mobileGoals: document.querySelector("#mobileGoals"),
+  goalCount: document.querySelector("#goalCountLabel"),
   deck: document.querySelector("#deck"),
+  deckTitle: document.querySelector("#deckTitle"),
   meta: document.querySelector("#deckMeta"),
+  activity: document.querySelector("#activityFeed"),
+  provider: document.querySelector("#providerPill"),
   toast: document.querySelector("#toast"),
   context: document.querySelector("#contextButton"),
   autopilot: document.querySelector("#autopilotButton"),
   more: document.querySelector("#moreButton"),
+  skipAction: document.querySelector("#skipAction"),
+  startAction: document.querySelector("#startAction"),
   newGoal: document.querySelector("#newGoalButton"),
+  mobileGoalButton: document.querySelector("#mobileGoalsButton"),
   collapseRail: document.querySelector("#collapseRailButton"),
   sheet: document.querySelector("#contextSheet"),
   form: document.querySelector("#contextForm"),
@@ -39,6 +51,8 @@ const els = {
   goalForm: document.querySelector("#goalForm"),
   goalInput: document.querySelector("#goalInput"),
 };
+
+let dragState = null;
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -69,6 +83,10 @@ function currentCard() {
   return cards[state.index] || null;
 }
 
+function currentStack() {
+  return visibleCards().slice(state.index, state.index + 3);
+}
+
 function toast(message) {
   els.toast.textContent = message;
   els.toast.classList.add("show");
@@ -88,51 +106,130 @@ function escapeAttr(value) {
   return escapeHtml(value).replaceAll("'", "&#39;");
 }
 
+function persistVariants() {
+  localStorage.setItem(variantKey, JSON.stringify(state.variants));
+}
+
+function selectedVariantIndex(card) {
+  const labels = cardActionButtons(card);
+  if (!labels.length) return 0;
+  const stored = Number(state.variants[String(card.id)] || 0);
+  return Number.isFinite(stored) ? Math.min(Math.max(stored, 0), labels.length - 1) : 0;
+}
+
+function selectedButton(card) {
+  const buttons = cardActionButtons(card);
+  if (!buttons.length) return null;
+  return buttons[selectedVariantIndex(card)] || buttons[0] || null;
+}
+
+function selectedBlock(card) {
+  const blocks = Array.isArray(card.blocks) ? card.blocks : [];
+  if (!blocks.length) return null;
+  const buttons = cardActionButtons(card);
+  if (buttons.length === blocks.length) return blocks[selectedVariantIndex(card)] || blocks[0];
+  return blocks[0];
+}
+
+function otherBlocks(card) {
+  const blocks = Array.isArray(card.blocks) ? card.blocks : [];
+  const selected = selectedBlock(card);
+  return blocks.filter((block) => block !== selected);
+}
+
 function render() {
-  renderGoals();
   const cards = visibleCards();
   const card = currentCard();
   const position = card ? `${Math.min(state.index + 1, cards.length)}/${cards.length}` : "0/0";
-  els.meta.textContent = `${goalTitle()} · ${position} · ${openCount()} open · ${state.started} done`;
+  els.deckTitle.textContent = goalTitle();
+  els.meta.textContent = `${cards.length} open, ${state.started} started, ${state.skipped} skipped, ${position}`;
+  els.provider.textContent = providerLabel();
   localStorage.setItem(indexKey, String(state.index));
-  if (!card) {
-    els.deck.innerHTML = `
-      <article class="empty">
-        <strong>${escapeHtml(emptyTitle())}</strong>
-        <p>Use Autopilot to let the agent work directly, or add context so it can create sharper cards.</p>
-      </article>
-    `;
-    return;
-  }
-  els.deck.innerHTML = cardHtml(card);
-  bindCard(card);
+  renderGoals();
+  renderActivity();
+  renderDeck(cards);
+  syncGlobalButtons(Boolean(card));
+}
+
+function syncGlobalButtons(hasCard) {
+  els.startAction.disabled = !hasCard;
+  els.skipAction.disabled = !hasCard;
+  els.context.disabled = !hasCard && state.activeGoalId === "all";
 }
 
 function renderGoals() {
   document.body.classList.toggle("rail-collapsed", state.railCollapsed);
   els.collapseRail.innerHTML = railSvg(state.railCollapsed);
-  els.collapseRail.setAttribute("aria-label", state.railCollapsed ? "Expand goals" : "Collapse goals");
+  els.collapseRail.setAttribute("aria-label", state.railCollapsed ? "Expand side rail" : "Collapse side rail");
+  const tabs = goalTabs();
+  els.goalCount.textContent = String(tabs.length - 1);
+  const html = tabs.map(goalTabHtml).join("");
+  els.tabs.innerHTML = html;
+  els.mobileGoals.innerHTML = html;
+  [els.tabs, els.mobileGoals].forEach((container) => {
+    container.querySelectorAll("[data-goal]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.activeGoalId = button.dataset.goal || "all";
+        state.index = 0;
+        localStorage.setItem(goalKey, state.activeGoalId);
+        render();
+      });
+    });
+  });
+}
+
+function goalTabs() {
   const tabs = [
-    { id: "all", title: "All", count: Number(state.stats.open || state.cards.length) },
+    { id: "all", title: "All cards", count: Number(state.stats.open || state.cards.length), subtitle: "Everything still waiting" },
     ...state.goals.map((goal) => {
       const threadId = Number(goal.tg_thread_id || 0);
       const id = threadId ? `topic:${threadId}` : String(goal.id);
-      return { id, title: goal.title, count: countFor(id) };
+      return {
+        id,
+        title: goal.title || "Goal",
+        count: countFor(id),
+        subtitle: threadId ? "Telegram topic" : "Goal lane",
+      };
     }),
-    ...state.topics.map((topic) => ({ id: `topic:${topic.thread_id || topic.id}`, title: topic.title || `Topic ${topic.thread_id || topic.id}`, count: Number(topic.count || 0) })),
+    ...state.topics.map((topic) => ({
+      id: `topic:${topic.thread_id || topic.id}`,
+      title: topic.title || `Topic ${topic.thread_id || topic.id}`,
+      count: Number(topic.count || 0),
+      subtitle: "Telegram topic",
+    })),
   ];
   const seen = new Set();
-  els.tabs.innerHTML = tabs
-    .filter((tab) => {
-      if (seen.has(tab.id)) return false;
-      seen.add(tab.id);
-      return true;
-    })
-    .map((tab) => `<button class="${tab.id === state.activeGoalId ? "active" : ""}" data-goal="${escapeAttr(tab.id)}"><span>${escapeHtml(tab.title)}</span><small>${tab.count}</small></button>`)
-    .join("");
-  els.tabs.querySelectorAll("[data-goal]").forEach((button) => {
+  return tabs.filter((tab) => {
+    if (seen.has(tab.id)) return false;
+    seen.add(tab.id);
+    return true;
+  });
+}
+
+function goalTabHtml(tab) {
+  const active = tab.id === state.activeGoalId ? "active" : "";
+  return `
+    <button class="${active}" data-goal="${escapeAttr(tab.id)}" type="button">
+      <div class="goal-copy">
+        <strong class="goal-title">${escapeHtml(clipLabel(tab.title, 38))}</strong>
+        <small class="goal-subline">${escapeHtml(tab.subtitle || "")}</small>
+      </div>
+      <span class="goal-count">${tab.count}</span>
+    </button>
+  `;
+}
+
+function renderActivity() {
+  if (!state.activity.length) {
+    els.activity.innerHTML = `<article class="activity-item"><span class="activity-dot"></span><div class="activity-copy"><strong>No recent decisions</strong><small>Swipe or tap cards here and the sync log will fill in.</small></div></article>`;
+    return;
+  }
+  els.activity.innerHTML = state.activity.map(activityHtml).join("");
+  els.activity.querySelectorAll("[data-activity-thread]").forEach((button) => {
     button.addEventListener("click", () => {
-      state.activeGoalId = button.dataset.goal || "all";
+      const threadId = button.dataset.activityThread || "";
+      if (!threadId) return;
+      state.activeGoalId = `topic:${threadId}`;
       state.index = 0;
       localStorage.setItem(goalKey, state.activeGoalId);
       render();
@@ -140,182 +237,309 @@ function renderGoals() {
   });
 }
 
-function openCount() {
-  if (state.activeGoalId === "all") return Number(state.stats.open || state.cards.length);
-  return visibleCards().length;
-}
-
-function goalTitle() {
-  if (state.activeGoalId === "all") return "All goals";
-  if (state.activeGoalId.startsWith("topic:")) {
-    const topicId = state.activeGoalId.slice("topic:".length);
-    const topic = state.topics.find((item) => String(item.thread_id || item.id) === topicId);
-    const goal = state.goals.find((item) => String(item.tg_thread_id || "") === topicId);
-    return clipLabel((goal?.title || topic?.title || "Goal").trim(), 34);
-  }
-  const goal = state.goals.find((item) => String(item.id) === String(state.activeGoalId));
-  return clipLabel((goal?.title || "Goal").trim(), 34);
-}
-
-function emptyTitle() {
-  if (state.activeGoalId === "all") return "No open cards";
-  return "This goal is clear";
-}
-
-function clipLabel(value, limit) {
-  const text = String(value || "Goal").replace(/\s+/g, " ").trim();
-  return text.length > limit ? `${text.slice(0, limit - 1).trim()}…` : text;
-}
-
-function countFor(id) {
-  if (id.startsWith("topic:")) {
-    const topicId = id.slice("topic:".length);
-    return state.cards.filter((card) => String(card.topic_id || "0") === topicId).length;
-  }
-  return state.cards.filter((card) => String(card.goal_id || "") === String(id)).length;
-}
-
-function cardHtml(card) {
-  const meta = sourceMeta(card);
-  const buttons = cardActionButtons(card);
-  const hasAction = buttons.length > 0;
-  const text = renderRichText(plainText(card));
-  const hasMedia = Boolean(card.visual?.src && ["image", "video"].includes(card.visual?.kind));
+function activityHtml(item) {
+  const status = String(item.status || "");
+  const threadLabel = item.thread_id ? ` · ${clipLabel(item.thread_title || `Topic ${item.thread_id}`, 18)}` : "";
   return `
-    <article class="card ${hasMedia ? "has-media" : "text-only"}" data-card-id="${card.id}">
-      <header class="card-head">
-        ${appIconHtml(meta)}
-        <div class="headline">
-          <strong>${escapeHtml(meta.name)}</strong>
-          <span>${escapeHtml(relativeAge(card.created_at))}${sourceInline(card)}</span>
+    <button class="activity-item" type="button" data-activity-thread="${escapeAttr(item.thread_id || "")}">
+      <span class="activity-dot ${activityDotClass(status)}"></span>
+      <div class="activity-copy">
+        <strong>${escapeHtml(clipLabel(item.title || "Recent card", 52))}</strong>
+        <small>${escapeHtml(activityStatusLabel(item))}${escapeHtml(threadLabel)}</small>
+      </div>
+    </button>
+  `;
+}
+
+function activityDotClass(status) {
+  if (status === "accepted") return "is-accepted";
+  if (status === "dismissed") return "is-dismissed";
+  if (status === "completed") return "is-completed";
+  return "";
+}
+
+function activityStatusLabel(item) {
+  const decision = String(item.decision || "").trim();
+  const status = String(item.status || "");
+  if (decision) return `${decision} · ${relativeAge(item.updated_at)}`;
+  if (status) return `${titleCase(status)} · ${relativeAge(item.updated_at)}`;
+  return relativeAge(item.updated_at);
+}
+
+function renderDeck(cards) {
+  const stack = currentStack();
+  if (!stack.length) {
+    els.deck.innerHTML = `
+      <article class="empty">
+        <strong>${escapeHtml(emptyTitle())}</strong>
+        <p>Ask for more cards, lock a goal, or add context so the next suggestions are sharper and more actionable.</p>
+      </article>
+    `;
+    return;
+  }
+  els.deck.innerHTML = stack
+    .map((card, offset) => cardHtml(card, offset, cards.length))
+    .reverse()
+    .join("");
+  bindDeck();
+}
+
+function cardHtml(card, stackIndex) {
+  const top = stackIndex === 0;
+  const meta = sourceMeta(card);
+  const action = selectedButton(card);
+  const selected = selectedBlock(card);
+  const prepared = completedWorkTags(card);
+  const others = otherBlocks(card);
+  const hero = heroVisual(card, meta);
+  return `
+    <article
+      class="deck-card stack-${stackIndex} ${top ? "is-top" : ""}"
+      data-card-id="${card.id}"
+      data-top="${top ? "1" : "0"}"
+    >
+      <section class="hero-panel ${hero.hasMedia ? "has-media" : ""}">
+        ${hero.media}
+        <div class="hero-sheen"></div>
+        <div class="hero-copy">
+          <div class="hero-meta">
+            <span class="card-source">${escapeHtml(meta.name)}</span>
+            <span class="hero-age">${escapeHtml(relativeAge(card.created_at))}</span>
+          </div>
+          <div class="hero-footer">
+            <div>
+              <h2 class="hero-title">${escapeHtml(cardHeadline(card))}</h2>
+              <p class="hero-why">${escapeHtml(primaryWhy(card))}</p>
+            </div>
+            <span class="status-pill">${escapeHtml(cardFooterStatus(card))}</span>
+          </div>
         </div>
-      </header>
-      <section class="card-body">
-        ${workStripHtml(card)}
-        <p class="post-text">${text}</p>
-        ${blocksHtml(card)}
-        ${detailHtml(card)}
-        ${mediaHtml(card)}
+        <div class="swipe-badge nope">Skip</div>
+        <div class="swipe-badge like">Start</div>
       </section>
-      ${actionsHtml(buttons, hasAction)}
+
+      <section class="card-summary">
+        <div class="summary-copy">
+          <strong>${escapeHtml(summaryLabel(card))}</strong>
+          <p>${escapeHtml(summaryValue(card))}</p>
+        </div>
+        <span class="count-pill">${escapeHtml(countLabel(card))}</span>
+      </section>
+
+      ${variantStripHtml(card)}
+
+      <section class="card-body">
+        <div class="insight-grid">
+          <article class="insight-panel">
+            <span class="insight-label">One-second read</span>
+            <div class="insight-value">${renderRichText(primaryInsight(card, selected))}</div>
+          </article>
+          ${prepared.length ? preparedPanelHtml(prepared) : ""}
+          ${selected ? detailPanelHtml(selected.title || "Selected version", selected.body, true) : ""}
+          ${others.map((block) => detailPanelHtml(block.title || "Details", block.body)).join("")}
+          ${actionDetailHtml(card)}
+        </div>
+      </section>
+
+      <footer class="card-footer">
+        <div class="choice-preview">
+          <strong>${escapeHtml(action?.text || "Ready when you are")}</strong>
+          <p>${escapeHtml(actionPreview(card, action))}</p>
+        </div>
+        <button class="choice-button" data-start-current type="button">
+          ${escapeHtml(action?.text || "Start")}
+        </button>
+      </footer>
     </article>
   `;
 }
 
-function actionsHtml(buttons, hasAction) {
-  const choiceHtml = buttons.map((button) => `<button class="choice" data-start data-button="${escapeAttr(button.raw)}">${escapeHtml(button.text)}</button>`).join("");
+function heroVisual(card, meta) {
+  const visual = card.visual || {};
+  if (visual.kind === "image" && visual.src) {
+    return {
+      hasMedia: true,
+      media: `<div class="hero-media"><img src="${escapeAttr(visual.src)}" alt="${escapeAttr(meta.name)}" /></div>`,
+    };
+  }
+  if (visual.kind === "video" && visual.src) {
+    return {
+      hasMedia: true,
+      media: `<div class="hero-media"><video src="${escapeAttr(visual.src)}" muted autoplay loop playsinline preload="metadata"></video></div>`,
+    };
+  }
+  return { hasMedia: false, media: "" };
+}
+
+function variantStripHtml(card) {
+  const buttons = cardActionButtons(card);
+  if (buttons.length <= 1) return "";
+  const selected = selectedVariantIndex(card);
   return `
-    <footer class="actions ${hasAction ? "" : "info-only"}">
-      <div class="choices">
-        ${choiceHtml}
-      </div>
-      <div class="utility-actions">
-        <button class="round no" data-delete type="button" aria-label="Skip">${xSvg()}</button>
-        <button class="round comment" data-comment type="button" aria-label="Comment">${commentSvg()}</button>
-      </div>
-      <form class="inline-comment" data-comment-form>
-        <input data-comment-input type="text" autocomplete="off" placeholder="Add context..." />
-      </form>
-    </footer>
+    <section class="variant-strip" aria-label="Card versions">
+      ${buttons
+        .map(
+          (button, index) => `
+            <button
+              class="variant-pill ${index === selected ? "active" : ""}"
+              type="button"
+              data-variant-card="${card.id}"
+              data-variant-index="${index}"
+            >
+              ${escapeHtml(button.text)}
+            </button>
+          `
+        )
+        .join("")}
+    </section>
   `;
 }
 
-function bindCard(card) {
-  const item = els.deck.querySelector(".card");
-  els.deck.querySelectorAll("[data-delete]").forEach((button) => button.addEventListener("click", () => dismissCard(card.id, item)));
-  els.deck.querySelectorAll("[data-comment]").forEach((button) => button.addEventListener("click", () => openInlineComment(item)));
-  els.deck.querySelectorAll("[data-comment-form]").forEach((form) => form.addEventListener("submit", (event) => sendInlineComment(event, card, item)));
-  els.deck.querySelectorAll("[data-start]").forEach((button) => button.addEventListener("click", () => startCard(card.id, button.dataset.button || "", item)));
-  let startX = 0;
-  let startY = 0;
-  item.addEventListener("touchstart", (event) => {
-    startX = event.touches[0].clientX;
-    startY = event.touches[0].clientY;
-  }, { passive: true });
-  item.addEventListener("touchend", (event) => {
-    const touch = event.changedTouches[0];
-    const dx = touch.clientX - startX;
-    const dy = touch.clientY - startY;
-    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy)) {
-      if (dx < 0) {
-        dismissCard(card.id, item);
-      } else {
-        const buttons = cardActionButtons(card);
-        buttons.length === 1 ? startCard(card.id, buttons[0].raw, item) : toast("Choose an option.");
-      }
-    } else if (Math.abs(dy) > 75) {
-      openContext();
+function preparedPanelHtml(items) {
+  return `
+    <article class="insight-panel">
+      <span class="insight-label">Already prepared</span>
+      <ul class="prepared-list">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+    </article>
+  `;
+}
+
+function detailPanelHtml(title, body, open = false) {
+  return `
+    <details class="detail-panel" ${open ? "open" : ""}>
+      <summary>${escapeHtml(title)}</summary>
+      <div class="detail-copy">${renderRichText(body)}</div>
+    </details>
+  `;
+}
+
+function actionDetailHtml(card) {
+  const action = String(card.action || "").trim();
+  if (!action || action === card.title || action === card.why) return "";
+  return detailPanelHtml("Agent prompt", action);
+}
+
+function bindDeck() {
+  els.deck.querySelectorAll("[data-variant-card]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = String(button.dataset.variantCard || "");
+      state.variants[id] = Number(button.dataset.variantIndex || "0");
+      persistVariants();
+      render();
+    });
+  });
+
+  const topCard = els.deck.querySelector(".deck-card.is-top");
+  if (topCard) bindDrag(topCard);
+
+  els.deck.querySelectorAll("[data-start-current]").forEach((button) => {
+    button.addEventListener("click", () => startCurrentCard());
+  });
+}
+
+function bindDrag(node) {
+  node.addEventListener("pointerdown", (event) => {
+    if (event.button && event.button !== 0) return;
+    if (event.target.closest("button, a, summary, details, input, textarea")) return;
+    dragState = {
+      node,
+      startX: event.clientX,
+      startY: event.clientY,
+      dx: 0,
+      dy: 0,
+      active: true,
+    };
+    node.classList.add("dragging");
+    node.setPointerCapture?.(event.pointerId);
+  });
+
+  node.addEventListener("pointermove", (event) => {
+    if (!dragState?.active || dragState.node !== node) return;
+    dragState.dx = event.clientX - dragState.startX;
+    dragState.dy = event.clientY - dragState.startY;
+    const rotate = dragState.dx / 16;
+    node.style.transform = `translate(${dragState.dx}px, ${dragState.dy * 0.18}px) rotate(${rotate}deg)`;
+    node.classList.toggle("show-like", dragState.dx > 28);
+    node.classList.toggle("show-nope", dragState.dx < -28);
+  });
+
+  function finish(pointerId) {
+    if (!dragState?.active || dragState.node !== node) return;
+    const { dx, dy } = dragState;
+    dragState.active = false;
+    node.classList.remove("dragging");
+    node.releasePointerCapture?.(pointerId);
+    if (Math.abs(dx) > 118 && Math.abs(dx) > Math.abs(dy)) {
+      if (dx > 0) startCurrentCard(node);
+      else dismissCurrentCard(node);
+      dragState = null;
+      return;
     }
-  }, { passive: true });
-}
+    node.style.transform = "";
+    node.classList.remove("show-like", "show-nope");
+    dragState = null;
+  }
 
-function plainText(card) {
-  const title = cleanCardTitle(card.title);
-  const why = String(card.why || "").trim();
-  return why && why !== title ? `${title}\n${why}` : title || why || "Ready when you are.";
-}
-
-function cleanCardTitle(value) {
-  const text = String(value || "").replace(/^goal:\s*/i, "").trim();
-  return text ? text[0].toUpperCase() + text.slice(1) : "";
+  node.addEventListener("pointerup", (event) => finish(event.pointerId));
+  node.addEventListener("pointercancel", (event) => finish(event.pointerId));
 }
 
 function renderRichText(value) {
   return escapeHtml(value)
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*{1,2}/g, "")
     .replace(/(https?:\/\/[^\s<]+)/g, (url) => `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(shortUrl(url))}</a>`)
     .replace(/\n+/g, "<br />");
 }
 
-function shortUrl(url) {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return "link";
-  }
+function summaryLabel(card) {
+  return String(card.source || "").startsWith("miniapp-") ? "Best first move" : "Why this card matters";
 }
 
-function mediaHtml(card) {
-  const visual = card.visual || {};
-  if (visual.kind === "image" && visual.src) return `<div class="media"><img src="${escapeAttr(visual.src)}" alt="" /></div>`;
-  if (visual.kind === "video" && visual.src) return `<div class="media"><video src="${escapeAttr(visual.src)}" controls playsinline preload="metadata"></video></div>`;
-  return "";
+function summaryValue(card) {
+  const text = primaryWhy(card);
+  return text || "Quick context is ready. You just decide if it should start.";
 }
 
-function detailHtml(card) {
-  if (String(card.source || "").startsWith("miniapp-goal:")) return "";
-  const action = String(card.action || "").trim();
-  if (!action || action === card.title || action === card.why) return "";
-  return `<details><summary>Details</summary><div>${renderRichText(action)}</div></details>`;
+function primaryInsight(card, selected) {
+  if (selected?.body) return selected.body;
+  const title = cleanCardTitle(card.title);
+  const why = String(card.why || "").trim();
+  return why && why !== title ? why : title || why || "Ready when you are.";
 }
 
-function blocksHtml(card) {
-  const blocks = Array.isArray(card.blocks) ? card.blocks : [];
-  return blocks.map((block) => {
-    const label = `${block.emoji ? `${block.emoji} ` : ""}${block.title || "Details"}`;
-    return `<details><summary>${escapeHtml(label)}</summary><div>${renderRichText(block.body || "")}</div></details>`;
-  }).join("");
+function primaryWhy(card) {
+  const why = String(card.why || "").trim();
+  if (why) return why;
+  const title = cleanCardTitle(card.title);
+  return title || "Ready to act.";
 }
 
-function sourceInline(card) {
-  const url = displaySourceUrl(card) || firstUrl([card.title, card.why].join(" "));
-  if (!url) return "";
-  return ` · <a class="source-link" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(card.source_label || "Source")}</a>`;
+function cardHeadline(card) {
+  const source = String(card.source || "");
+  const limit = source.startsWith("miniapp-") ? 28 : 38;
+  return clipLabel(cleanCardTitle(card.title) || sourceMeta(card).name, limit);
 }
 
-function displaySourceUrl(card) {
-  const url = String(card.source_url || "").trim();
-  if (!url) return "";
-  const host = sourceHost(url);
-  const labelText = [card.source_label, card.source, card.title, card.why].join(" ").toLowerCase();
-  const genericBuxRepo = host === "github.com" && /github\.com\/browser-use\/bux\/?$/i.test(url);
-  if (genericBuxRepo && !/\b(github|pull request|pr #|repo|issue)\b/i.test(labelText)) return "";
-  return url;
+function cardFooterStatus(card) {
+  const comments = Number(card.comments || 0);
+  if (comments > 0) return `${comments} notes`;
+  if (String(card.source || "").startsWith("miniapp-")) return "Starter";
+  if (card.topic_title) return clipLabel(card.topic_title, 14);
+  return "Live";
 }
 
-function firstUrl(value) {
-  return String(value || "").match(/https?:\/\/[^\s)"']+/)?.[0] || "";
+function countLabel(card) {
+  if (String(card.source || "").startsWith("miniapp-setup:")) return "Setup";
+  if (String(card.source || "").startsWith("miniapp-goal:")) return "Goal";
+  if (Number(card.comments || 0) > 0) return `${card.comments} notes`;
+  return "Now";
+}
+
+function actionPreview(card, action) {
+  if (action && String(card.source || "").startsWith("miniapp-setup:")) return "Guide setup, then start using real data.";
+  if (action && String(card.source || "").startsWith("miniapp-goal:")) return "Lock this as a standing goal and generate sharper follow-ups.";
+  if (action) return "Right swipe starts the selected version immediately.";
+  return "Add context to improve the next version.";
 }
 
 function cardActionButtons(card) {
@@ -337,6 +561,8 @@ function buttonText(label, card = {}) {
 }
 
 function inferredActionLabel(card) {
+  if (String(card.source || "").startsWith("miniapp-setup:")) return "Set it up";
+  if (String(card.source || "").startsWith("miniapp-goal:")) return "Lock goal";
   const text = [card.title, card.why, card.action, card.source_label, card.source].join(" ").toLowerCase();
   const rules = [
     [/\b(send|reply|dm|email|message)\b/, "Send draft"],
@@ -352,67 +578,65 @@ function inferredActionLabel(card) {
   return (rules.find(([pattern]) => pattern.test(text)) || [null, "Start"])[1];
 }
 
-function workStripHtml(card) {
-  const tags = completedWorkTags(card);
-  if (!tags.length) return "";
-  return `<div class="work-strip" aria-label="Completed internal work"><span>Done</span>${tags.map((tag) => `<b>${escapeHtml(tag)}</b>`).join("")}</div>`;
-}
-
 function completedWorkTags(card) {
-  if (String(card.source || "").startsWith("miniapp-goal:")) return [];
-  if ((Array.isArray(card.buttons) ? card.buttons : []).some((label) => /lock goal/i.test(String(label)))) return [];
+  if (String(card.source || "").startsWith("miniapp-")) return [];
   const tags = new Set();
   const blocks = Array.isArray(card.blocks) ? card.blocks : [];
   const blockText = blocks.map((block) => `${block.title || ""} ${block.body || ""}`).join(" ").toLowerCase();
   const allText = [card.title, card.why, card.action, blockText].join(" ").toLowerCase();
-  if (/\b(draft|variant|reply|message|post copy|script)\b/.test(blockText)) tags.add("draft ready");
-  if (/\b(diff|pr|pull request|patch|test)\b/.test(allText)) tags.add("code inspected");
-  if (/\b(asset|image|video|screenshot|clip|media)\b/.test(allText) || card.visual?.kind === "image" || card.visual?.kind === "video") tags.add("asset ready");
-  if (/\b(analy[sz]e|data|metrics|scoreboard|signup|flight|compare|research)\b/.test(allText)) tags.add("research done");
+  if (/\b(draft|variant|reply|message|post copy|script)\b/.test(blockText)) tags.add("Drafts are already prepared.");
+  if (/\b(diff|pr|pull request|patch|test)\b/.test(allText)) tags.add("The code context was already inspected.");
+  if (/\b(asset|image|video|screenshot|clip|media)\b/.test(allText) || card.visual?.kind === "image" || card.visual?.kind === "video") tags.add("The supporting asset is ready.");
+  if (/\b(analy[sz]e|data|metrics|scoreboard|signup|flight|compare|research)\b/.test(allText)) tags.add("The research step already happened.");
   return [...tags].slice(0, 3);
 }
 
 function sourceMeta(card) {
+  const source = String(card.source || "");
+  if (source.startsWith("miniapp-setup:gmail")) return { name: "Gmail", domain: "mail.google.com" };
+  if (source.startsWith("miniapp-setup:slack")) return { name: "Slack", domain: "slack.com" };
+  if (source.startsWith("miniapp-setup:github")) return { name: "GitHub", domain: "github.com" };
+  if (source.startsWith("miniapp-goal:")) return { name: "Goal lane", domain: "" };
+
   const url = displaySourceUrl(card);
   const host = sourceHost(url);
-  if (String(card.source || "").startsWith("miniapp-goal:")) {
-    return { name: "Agency", mark: "" };
-  }
   const brands = [
     ["producthunt.com", "Product Hunt", "producthunt.com"],
-    ["product hunt", "Product Hunt", "producthunt.com"],
     ["linkedin.com", "LinkedIn", "linkedin.com"],
-    ["linkedin", "LinkedIn", "linkedin.com"],
     ["news.ycombinator.com", "Hacker News", "news.ycombinator.com"],
-    ["hacker news", "Hacker News", "news.ycombinator.com"],
-    ["show hn", "Hacker News", "news.ycombinator.com"],
-    ["bookface", "YC", "ycombinator.com"],
     ["ycombinator.com", "YC", "ycombinator.com"],
     ["mail.google.com", "Gmail", "mail.google.com"],
-    ["gmail", "Gmail", "mail.google.com"],
     ["slack.com", "Slack", "slack.com"],
-    ["slack", "Slack", "slack.com"],
     ["reddit.com", "Reddit", "reddit.com"],
-    ["reddit", "Reddit", "reddit.com"],
     ["github.com", "GitHub", "github.com"],
-    ["github", "GitHub", "github.com"],
-    ["whatsapp", "WhatsApp", "whatsapp.com"],
-    ["telegram", "Telegram", "telegram.org"],
+    ["telegram.org", "Telegram", "telegram.org"],
     ["x.com", "X", "x.com"],
     ["twitter.com", "X", "x.com"],
-    ["tweet", "X", "x.com"],
     ["linear.app", "Linear", "linear.app"],
-    ["linear", "Linear", "linear.app"],
     ["datadoghq.com", "Datadog", "datadoghq.com"],
-    ["datadog", "Datadog", "datadoghq.com"],
   ];
   const explicitText = [card.source_label, card.source, card.title, card.why].join(" ").toLowerCase();
   const explicit = brands.find(([needle]) => explicitText.includes(needle));
-  if (explicit) return { name: explicit[1], domain: explicit[2], mark: explicit[1][0] };
+  if (explicit) return { name: explicit[1], domain: explicit[2] };
   const found = brands.find(([needle]) => host.toLowerCase().includes(needle));
-  if (found) return { name: found[1], domain: found[2], mark: found[1][0] };
+  if (found) return { name: found[1], domain: found[2] };
   const name = String(card.source || "Agency").split("-").filter(Boolean).slice(0, 2).join(" ") || "Agency";
-  return { name: titleCase(name), mark: initials(name) };
+  return { name: titleCase(name), domain: "" };
+}
+
+function cleanCardTitle(value) {
+  const text = String(value || "").replace(/^goal:\s*/i, "").trim();
+  return text ? text[0].toUpperCase() + text.slice(1) : "";
+}
+
+function displaySourceUrl(card) {
+  const url = String(card.source_url || "").trim();
+  if (!url) return "";
+  const host = sourceHost(url);
+  const labelText = [card.source_label, card.source, card.title, card.why].join(" ").toLowerCase();
+  const genericBuxRepo = host === "github.com" && /github\.com\/browser-use\/bux\/?$/i.test(url);
+  if (genericBuxRepo && !/\b(github|pull request|pr #|repo|issue)\b/i.test(labelText)) return "";
+  return url;
 }
 
 function sourceHost(url) {
@@ -423,20 +647,12 @@ function sourceHost(url) {
   }
 }
 
-function appIconHtml(meta) {
-  if (meta.domain) {
-    const src = `https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(`https://${meta.domain}`)}&sz=64`;
-    return `<div class="avatar"><img src="${escapeAttr(src)}" alt="" onerror="this.parentElement.classList.add('avatar-empty');this.remove()" /></div>`;
+function shortUrl(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "link";
   }
-  return `<div class="avatar avatar-empty" aria-hidden="true"></div>`;
-}
-
-function titleCase(value) {
-  return String(value || "Agency").replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function initials(value) {
-  return titleCase(value).split(/\s+/).slice(0, 2).map((word) => word[0] || "").join("");
 }
 
 function relativeAge(createdAt) {
@@ -450,6 +666,65 @@ function relativeAge(createdAt) {
   return new Date(seconds * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function titleCase(value) {
+  return String(value || "Agency").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function clipLabel(value, limit) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > limit ? `${text.slice(0, limit - 1).trim()}…` : text;
+}
+
+function openCount() {
+  if (state.activeGoalId === "all") return Number(state.stats.open || state.cards.length);
+  return visibleCards().length;
+}
+
+function goalTitle() {
+  if (state.activeGoalId === "all") return "All goals";
+  if (state.activeGoalId.startsWith("topic:")) {
+    const topicId = state.activeGoalId.slice("topic:".length);
+    const topic = state.topics.find((item) => String(item.thread_id || item.id) === topicId);
+    const goal = state.goals.find((item) => String(item.tg_thread_id || "") === topicId);
+    return clipLabel((goal?.title || topic?.title || "Goal").trim(), 34);
+  }
+  const goal = state.goals.find((item) => String(item.id) === String(state.activeGoalId));
+  return clipLabel((goal?.title || "Goal").trim(), 34);
+}
+
+function providerLabel() {
+  const provider = String(state.me?.settings?.provider || "").trim().toLowerCase();
+  if (provider === "codex") return "Telegram sync live · Codex";
+  if (provider === "claude") return "Telegram sync live · Claude";
+  return "Telegram sync live";
+}
+
+function emptyTitle() {
+  if (state.activeGoalId === "all") return "No open cards";
+  return "This lane is clear";
+}
+
+function countFor(id) {
+  if (id.startsWith("topic:")) {
+    const topicId = id.slice("topic:".length);
+    return state.cards.filter((card) => String(card.topic_id || "0") === topicId).length;
+  }
+  return state.cards.filter((card) => String(card.goal_id || "") === String(id)).length;
+}
+
+async function startCurrentCard(item = null) {
+  const card = currentCard();
+  if (!card) return;
+  const action = selectedButton(card);
+  await startCard(card.id, action?.raw || "", item || els.deck.querySelector(".deck-card.is-top"));
+}
+
+async function dismissCurrentCard(item = null) {
+  const card = currentCard();
+  if (!card) return;
+  await dismissCard(card.id, item || els.deck.querySelector(".deck-card.is-top"));
+}
+
 async function startCard(id, button, item) {
   item?.classList.add("accept-right");
   try {
@@ -458,6 +733,7 @@ async function startCard(id, button, item) {
     decrementOpenCount();
     localStorage.setItem("buxTinderStarted", String(state.started));
     removeLocal(id);
+    scheduleRefresh();
     toast("Started.");
   } catch (error) {
     item?.classList.remove("accept-right");
@@ -473,6 +749,7 @@ async function dismissCard(id, item) {
     decrementOpenCount();
     localStorage.setItem("buxTinderSkipped", String(state.skipped));
     removeLocal(id);
+    scheduleRefresh();
     toast("Skipped.");
   } catch (error) {
     item?.classList.remove("dismiss-left");
@@ -497,31 +774,6 @@ function openContext() {
   els.input.focus({ preventScroll: true });
 }
 
-function openInlineComment(item) {
-  const form = item?.querySelector("[data-comment-form]");
-  const input = item?.querySelector("[data-comment-input]");
-  if (!form || !input) return openContext();
-  form.classList.add("open");
-  input.focus({ preventScroll: true });
-}
-
-async function sendInlineComment(event, card, item) {
-  event.preventDefault();
-  const input = item?.querySelector("[data-comment-input]");
-  const comment = input?.value.trim() || "";
-  if (!comment) return;
-  input.disabled = true;
-  toast("Refining it...");
-  try {
-    await api(`/api/cards/${card.id}/comment`, { method: "POST", body: JSON.stringify({ comment }) });
-    input.value = "";
-    removeLocal(card.id);
-  } catch (error) {
-    input.disabled = false;
-    toast(error.message);
-  }
-}
-
 async function sendContext(event) {
   event.preventDefault();
   const comment = els.input.value.trim();
@@ -539,6 +791,7 @@ async function sendContext(event) {
     }
     els.input.value = "";
     if (card?.id) removeLocal(card.id);
+    scheduleRefresh();
   } catch (error) {
     els.input.value = comment;
     toast(error.message);
@@ -593,7 +846,7 @@ async function startAutopilot() {
     } else {
       await api("/api/autopilot", { method: "POST", body: "{}" });
     }
-    toast("Autopilot started.");
+    toast("Goal running.");
     scheduleRefresh();
   } catch (error) {
     toast(error.message);
@@ -601,8 +854,8 @@ async function startAutopilot() {
 }
 
 function scheduleRefresh() {
-  [1600, 6500].forEach((delay) => {
-    setTimeout(() => refresh({ resetToTop: true }).catch((error) => toast(error.message)), delay);
+  [1200, 4200, 9000].forEach((delay) => {
+    setTimeout(() => refresh({ resetToTop: false }).catch((error) => toast(error.message)), delay);
   });
 }
 
@@ -618,23 +871,21 @@ function attachSpeech() {
   els.voice.addEventListener("click", () => recognition.start());
 }
 
-function xSvg() {
-  return `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>`;
-}
-
-function commentSvg() {
-  return `<svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true"><path d="M1.75 10c0-4.42 3.58-8 8-8h4.37c4.49 0 8.13 3.64 8.13 8.13 0 2.96-1.61 5.68-4.2 7.11L10 21.7v-3.57h-.07C5.42 18.13 1.75 14.46 1.75 10Zm8-6a6 6 0 0 0 0 12H12v2.3l5.09-2.81a6.12 6.12 0 0 0 3.16-5.36A6.13 6.13 0 0 0 14.12 4H9.75Z" fill="currentColor"/></svg>`;
-}
-
 function railSvg(collapsed) {
   const path = collapsed ? "m9 6 6 6-6 6" : "m15 6-6 6 6 6";
   return `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="${path}" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
-els.context?.addEventListener("click", openContext);
-els.autopilot?.addEventListener("click", startAutopilot);
+els.context.addEventListener("click", openContext);
+els.autopilot.addEventListener("click", startAutopilot);
 els.more.addEventListener("click", generateMore);
+els.skipAction.addEventListener("click", () => dismissCurrentCard());
+els.startAction.addEventListener("click", () => startCurrentCard());
 els.newGoal.addEventListener("click", () => {
+  els.goalSheet.showModal();
+  els.goalInput.focus({ preventScroll: true });
+});
+els.mobileGoalButton.addEventListener("click", () => {
   els.goalSheet.showModal();
   els.goalInput.focus({ preventScroll: true });
 });
@@ -662,16 +913,20 @@ document.querySelectorAll("[data-goal-example]").forEach((button) => {
 attachSpeech();
 
 async function refresh(options = {}) {
-  const [goals, topics, cards, stats] = await Promise.all([
+  const [goals, topics, cards, stats, activity, me] = await Promise.all([
     api("/api/goals"),
     api("/api/topics"),
     api("/api/cards"),
     api("/api/stats"),
+    api("/api/activity"),
+    api("/api/me"),
   ]);
   state.goals = goals.goals || [];
   state.topics = topics.topics || [];
   state.cards = cards.cards || [];
   state.stats = stats.stats || {};
+  state.activity = activity.activity || [];
+  state.me = me || { settings: {} };
   if (options.resetToTop) state.index = 0;
   render();
 }
@@ -680,7 +935,7 @@ try {
   await refresh();
   setInterval(() => {
     refresh().catch((error) => toast(error.message));
-  }, 15000);
+  }, 10000);
 } catch (error) {
   els.deck.innerHTML = `<article class="empty"><strong>Login failed</strong><p>${escapeHtml(error.message)}</p></article>`;
 }
