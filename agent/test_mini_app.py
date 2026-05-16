@@ -214,7 +214,7 @@ class MiniAppTest(unittest.TestCase):
         thread.start()
         base = f"http://127.0.0.1:{server.server_port}"
         try:
-            for route in ["/mini-apps", "/mini-app-1", "/mini-app-10", "/miniapp/7"]:
+            for route in ["/miniapp", "/mini-apps", "/mini-app-1", "/mini-app-10", "/miniapp/7"]:
                 with urllib.request.urlopen(base + route, timeout=5) as res:
                     body = res.read().decode()
                     content_type = res.headers.get("Content-Type", "")
